@@ -1,0 +1,25 @@
+[package]
+name                   = "kitter-web"
+description            = "kitter, krusta's interface for X, drawn in place of x.com's app by krusta's content script"
+edition.workspace      = true
+license.workspace      = true
+rust-version.workspace = true
+version.workspace      = true
+
+[lib]
+crate-type = [ "cdylib" ]
+
+[dependencies]
+js-sys               = { workspace = true }
+kitter-api           = { workspace = true }
+leptos               = { workspace = true }
+serde_json           = { workspace = true }
+wasm-bindgen         = { workspace = true }
+wasm-bindgen-futures = { workspace = true }
+
+[dependencies.web-sys]
+features  = [ "Document", "Element", "HtmlDocument", "Location", "Response", "Selection", "Window" ]
+workspace = true
+
+[lints]
+workspace = true

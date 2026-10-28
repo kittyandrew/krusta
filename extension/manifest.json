@@ -1,0 +1,12 @@
+{
+  "manifest_version": 3,
+  "name": "krusta",
+  "version": "0.1.0",
+  "description": "Fast interfaces drawn in place of some sites' own apps, on the browser's own sessions. So far: X.",
+  "browser_specific_settings": { "gecko": { "id": "krusta@kittyandrew", "strict_min_version": "128.0" } },
+  "permissions": ["browsingData", "scripting", "storage", "webRequest", "webRequestBlocking"],
+  "background": { "scripts": ["sites.js", "background.js"] },
+  "icons": { "48": "icon-on.svg" },
+  "action": { "default_icon": "icon-on.svg", "default_title": "krusta", "default_area": "navbar" },
+  "content_security_policy": { "extension_pages": "script-src 'self' 'wasm-unsafe-eval'; object-src 'self'" }
+}

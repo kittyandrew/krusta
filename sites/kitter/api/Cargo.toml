@@ -1,0 +1,14 @@
+[package]
+name                   = "kitter-api"
+description            = "X's web API as kitter uses it: its calls and their parsed answers"
+edition.workspace      = true
+license.workspace      = true
+rust-version.workspace = true
+version.workspace      = true
+
+[dependencies]
+serde_json = { workspace = true }
+thiserror  = { workspace = true }
+
+[lints]
+workspace = true

@@ -1,0 +1,356 @@
+/* Catppuccin Frappe, as the rest of the desktop: the full palette, used by role. Text in three steps (text,
+   subtext, overlay), surfaces in three (base, mantle, surface), and an accent per kind of thing, so a post's parts
+   read apart at a glance: links blue, mentions lavender, hashtags teal, and each count its own colour. */
+:root {
+  --pink: #f4b8e4;
+  --mauve: #ca9ee6;
+  --red: #e78284;
+  --peach: #ef9f76;
+  --green: #a6d189;
+  --teal: #81c8be;
+  --sapphire: #85c1dc;
+  --blue: #8caaee;
+  --lavender: #babbf1;
+  --text: #c6d0f5;
+  --subtext: #a5adce;
+  --overlay: #838ba7;
+  --surface2: #626880;
+  --surface1: #51576d;
+  --surface: #414559;
+  --base: #303446;
+  --mantle: #292c3c;
+  --crust: #232634;
+  --hover: color-mix(in srgb, var(--surface) 35%, var(--base)); /* a post under the pointer, a step lighter */
+  color-scheme: dark;
+  scrollbar-color: var(--surface1) var(--base);
+  color: var(--text);
+  font: 15px/1.4 system-ui; /* every Firefox krusta runs in (128 and later) has system-ui */
+}
+body {
+  margin: 0;
+  background: var(--base);
+}
+::selection {
+  background: color-mix(in srgb, var(--mauve) 35%, transparent);
+}
+a {
+  color: var(--blue);
+  text-decoration: none;
+}
+a:hover {
+  text-decoration: underline;
+}
+.kitter {
+  max-width: 840px; /* X's 600 px with 20% more on each side */
+  margin: 0 auto;
+  border-inline: 1px solid var(--surface);
+  min-height: 100vh;
+}
+.bar {
+  position: sticky;
+  top: 0;
+  display: flex;
+  gap: 0.75rem;
+  align-items: baseline;
+  padding: 0.75rem 1rem;
+  background: color-mix(in srgb, var(--mantle) 88%, transparent);
+  backdrop-filter: blur(12px);
+  border-bottom: 1px solid var(--surface);
+  z-index: 1;
+}
+.brand {
+  background: linear-gradient(90deg, var(--mauve), var(--blue));
+  background-clip: text;
+  color: transparent;
+  font-weight: 800;
+  letter-spacing: 0.02em;
+}
+.brand:hover {
+  text-decoration: none;
+}
+/* Pinned lists can outnumber the bar's width: the tabs then scroll sideways instead of wrapping. */
+.tabs {
+  display: flex;
+  gap: 0.25rem;
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+button {
+  background: none;
+  border: 0;
+  font: inherit;
+  cursor: pointer;
+}
+.tab {
+  padding: 0.2rem 0.7rem;
+  border-radius: 999px;
+  color: var(--subtext);
+  white-space: nowrap;
+}
+.tab:hover {
+  background: var(--surface);
+  color: var(--text);
+}
+.tab.on {
+  background: color-mix(in srgb, var(--mauve) 22%, transparent);
+  color: var(--mauve);
+  font-weight: 600;
+}
+.muted {
+  color: var(--overlay);
+}
+/* A profile's Posts, Replies and Media, under its header. */
+.profile + .tabs {
+  padding: 0.5rem 1rem;
+  border-bottom: 1px solid var(--surface);
+}
+.profile {
+  padding: 0 1rem 0.75rem;
+  border-bottom: 1px solid var(--surface);
+}
+.profile .banner {
+  margin: 0 -1rem;
+  aspect-ratio: 3 / 1;
+  /* With no banner, Frappe's colours instead of a flat box. */
+  background: linear-gradient(120deg, var(--surface), color-mix(in srgb, var(--mauve) 30%, var(--surface))) center / cover;
+}
+.avatar.big {
+  width: 6rem;
+  height: 6rem;
+  margin-top: -3rem; /* over the banner's lower edge, as on X */
+  border: 3px solid var(--base);
+}
+.profile h1 {
+  margin: 0.25rem 0 0;
+  font-size: 1.3em;
+}
+.profile p {
+  margin: 0.2rem 0 0;
+}
+.meta,
+.follows {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0 1rem;
+}
+.meta {
+  color: var(--subtext);
+}
+.follows {
+  color: var(--overlay);
+}
+.follows b {
+  color: var(--text);
+}
+.post {
+  position: relative; /* for the thread line */
+  display: flow-root; /* holds the avatar's float inside the post */
+  padding: 0.75rem 1rem 0.75rem 4.25rem; /* the left 3.25rem are the avatar's column: its 2.5rem and a 0.75rem gap */
+  border-bottom: 1px solid var(--surface);
+  content-visibility: auto; /* off-screen posts skip layout and paint */
+  contain-intrinsic-size: auto 240px;
+  transition: background 0.15s;
+}
+.post:hover {
+  background: var(--hover);
+}
+.post,
+.quote {
+  cursor: pointer; /* a click opens the post's page (web/src/lib.rs, open) */
+}
+/* The post a post's page is about: already open, set larger, and marked in mauve among its thread and replies. */
+.post.focal {
+  cursor: auto;
+  box-shadow: inset 3px 0 var(--mauve);
+}
+.post.focal .text {
+  font-size: 1.15em;
+}
+/* A thread, as X draws it: a line from under a post's avatar down to the avatar of the post that answers it,
+   with no rule between the two. Its x is the avatar's middle: 1rem of padding and half the avatar's 2.5rem. */
+.post.threaded {
+  border-bottom: 0;
+}
+.post.threaded::after,
+.post.threaded + .post::before {
+  content: "";
+  position: absolute;
+  left: calc(2.25rem - 1px);
+  width: 2px;
+  background: var(--surface1);
+}
+.post.threaded::after {
+  top: 3.5rem; /* 0.25rem under the avatar */
+  bottom: 0;
+}
+.post.threaded + .post::before {
+  top: 0;
+  height: 0.5rem; /* to 0.25rem above the avatar */
+}
+.repost {
+  margin: 0 0 0.25rem;
+  font-size: 0.85em;
+  font-weight: 600;
+  color: var(--green);
+}
+.repost.pinned {
+  color: var(--peach);
+}
+.avatar {
+  width: 2.5rem;
+  height: 2.5rem;
+  border-radius: 50%;
+  background: var(--surface);
+}
+.author {
+  float: left; /* out into the post's left padding, beside the rest */
+  margin-left: -3.25rem;
+}
+.author > .avatar {
+  display: block; /* else the line box under an inline image adds a few pixels */
+}
+.avatar.small {
+  width: 1.25rem;
+  height: 1.25rem;
+  margin-right: 0.35rem;
+  vertical-align: -0.25rem;
+}
+.byline {
+  margin: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--overlay); /* the handle, a bare text node */
+}
+.byline .name {
+  color: var(--text);
+  font-weight: bold;
+}
+.byline .when {
+  color: inherit;
+}
+.text {
+  margin: 0.2rem 0 0;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.text a {
+  overflow-wrap: anywhere;
+}
+.text .mention {
+  color: var(--lavender);
+}
+.text .hashtag {
+  color: var(--teal);
+}
+/* X's layouts: one at its own shape (the element's aspect-ratio, capped in height), two side by side, three as
+   one tall and two stacked, four in a square; two to four share a 16:9 box. */
+.media {
+  display: grid;
+  gap: 2px;
+  margin-top: 0.5rem;
+  border: 1px solid var(--surface);
+  border-radius: 14px;
+  overflow: hidden;
+  aspect-ratio: 16 / 9;
+  background: var(--surface);
+}
+.media.n1 {
+  max-height: 32rem;
+}
+.media.n2 {
+  grid-template-columns: 1fr 1fr;
+}
+.media.n3 {
+  grid-template: "a b" "a c" / 1fr 1fr;
+}
+.media.n3 > :first-child {
+  grid-area: a;
+}
+.media.n4 {
+  grid-template: 1fr 1fr / 1fr 1fr;
+}
+.media > img,
+.media > video {
+  width: 100%;
+  height: 100%;
+  min-height: 0;
+  object-fit: cover;
+  display: block;
+  background: var(--mantle);
+}
+.media > img {
+  cursor: zoom-in;
+}
+.media > video:not(.gif) {
+  object-fit: contain; /* a video shows whole, letterboxed, as on X */
+}
+.viewer {
+  position: fixed;
+  inset: 0;
+  z-index: 2;
+  display: grid;
+  place-items: center;
+  background: color-mix(in srgb, var(--crust) 94%, transparent);
+  cursor: zoom-out;
+}
+.viewer img {
+  max-width: 95vw;
+  max-height: 95vh;
+  object-fit: contain;
+}
+.viewer .count {
+  position: absolute;
+  bottom: 1rem;
+  padding: 0.15rem 0.6rem;
+  border-radius: 999px;
+  background: var(--surface);
+  color: var(--subtext);
+}
+/* A quoted post sits a surface lower than the post around it, so the two never blend. */
+.quote {
+  margin-top: 0.5rem;
+  padding: 0.5rem 0.75rem;
+  background: var(--mantle);
+  border: 1px solid var(--surface1);
+  border-radius: 14px;
+}
+.quote:hover {
+  border-color: var(--surface2);
+}
+.counts {
+  display: flex;
+  gap: 1.5rem;
+  margin: 0.45rem 0 0;
+  color: var(--overlay); /* the views, a bare text node */
+  font-size: 0.85em;
+  font-variant-numeric: tabular-nums;
+}
+.counts .replies {
+  color: var(--sapphire);
+}
+.counts .reposts {
+  color: var(--green);
+}
+.counts .likes {
+  color: var(--pink);
+}
+.error {
+  margin: 0.75rem 1rem;
+  padding: 0.75rem 1rem;
+  border-left: 3px solid var(--red);
+  border-radius: 6px;
+  background: color-mix(in srgb, var(--red) 12%, var(--base));
+  color: var(--red);
+  white-space: pre-wrap;
+}
+.more {
+  display: block;
+  width: 100%;
+  padding: 1rem;
+  color: var(--mauve);
+  font-weight: 600;
+}
+.more:hover {
+  background: var(--hover);
+}

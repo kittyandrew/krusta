@@ -1,0 +1,7 @@
+{
+  "site": "X (Twitter)",
+  "hosts": ["x.com"],
+  "signIn": "^/(login|logout|i/flow/|i/jf/onboarding)",
+  "api": "/i/api/graphql/",
+  "appScripts": ["https://abs.twimg.com/responsive-web/", "https://abs.twimg.com/x-web/"]
+}

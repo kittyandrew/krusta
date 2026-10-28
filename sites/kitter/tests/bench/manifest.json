@@ -1,0 +1,10 @@
+{
+  "manifest_version": 2,
+  "name": "kitter bench",
+  "version": "0.1.0",
+  "description": "Measures x.com's own app against kitter in the same browser and session (docs/design.md, Against x.com).",
+  "browser_specific_settings": { "gecko": { "id": "bench@kitter.test" } },
+  "permissions": ["downloads", "https://x.com/*"],
+  "background": { "scripts": ["background.js"], "persistent": true },
+  "content_scripts": [{ "matches": ["https://x.com/*"], "js": ["measure.js"], "run_at": "document_start" }]
+}
