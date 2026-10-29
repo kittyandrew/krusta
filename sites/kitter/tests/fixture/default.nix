@@ -3,9 +3,8 @@
 # key is a test key.
 {pkgs}: let
   names = ["x.com" "abs.twimg.com" "pbs.twimg.com" "video.twimg.com"];
-  # twscrape's recordings (MIT): a list timeline, the source of every timeline page the fake answers (pages.py),
-  # and @XDevelopers' profile and posts, one of its posts with its replies, and a community's posts, answered as
-  # they are.
+  # twscrape's recordings (MIT): a list timeline, the source of the home and list pages (pages.py), and
+  # @XDevelopers' profile and posts, one of its posts with its replies, and a community's posts.
   twscrape = name: hash:
     pkgs.fetchurl {
       url = "https://raw.githubusercontent.com/vladkens/twscrape/63f61a518e576ea5c132f1156c03dda0520d76c1/tests/mocked-data/${name}.json";
@@ -33,8 +32,21 @@
   data = pkgs.runCommand "kitter-fake-x-data" {nativeBuildInputs = [pkgs.python3 pkgs.ffmpeg-headless pkgs.jq];} ''
     mkdir $out
     python3 -I ${./pages.py} ${recorded} $out
-    cp ${user} $out/user.json && cp ${userTweets} $out/user-tweets.json && cp ${community} $out/community.json
+    cp ${userTweets} $out/user-tweets.json && cp ${community} $out/community.json
     cp ${replies} $out/user-replies.json && cp ${media} $out/user-media.json
+    # A bio that names an account, for which X marks no entity (as on Oct 28, 2026), and an address that names none.
+    jq '.data.user.result.profile_bio.description += " Ask @API, not dev@x.com."' ${user} > $out/user.json
+    # McFaul's post with no replies, as X answers one (Oct 28, 2026): the post, "Discover more", then a bottom cursor
+    # that pages only more of it.
+    jq -n --slurpfile feed ${recorded} '
+      def entry($id): $feed[0] | [.. | objects | select(.itemContent?.tweet_results?.result?.rest_id? == $id)][0];
+      {data: {threaded_conversation_with_injections_v2: {instructions: [{type: "TimelineAddEntries", entries: [
+        {entryId: "tweet-2112986636392833489", content: entry("2112986636392833489")},
+        {entryId: "tweetdetailrelatedtweets-2", content: {entryType: "TimelineTimelineModule",
+          items: [{item: entry("2112996103201448049")}]}},
+        {entryId: "cursor-bottom-2", content: {entryType: "TimelineTimelineCursor", cursorType: "Bottom", value: "kitter-test-lonely"}}
+      ]}]}}}
+    ' > $out/lonely.json
     # The post's page with the "Discover more" module X has since added (as on Oct 28, 2026), holding McFaul's post
     # from the feed: posts from across X that kitter leaves out.
     jq --slurpfile feed ${recorded} '

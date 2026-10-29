@@ -1,11 +1,12 @@
-/* Catppuccin Frappe, as the rest of the desktop: the full palette, used by role. Text in three steps (text,
-   subtext, overlay), surfaces in three (base, mantle, surface), and an accent per kind of thing, so a post's parts
-   read apart at a glance: links blue, mentions lavender, hashtags teal, and each count its own colour. */
+/* Catppuccin Frappe, as the rest of the desktop, its colours used by role: text in three steps (text, subtext,
+   overlay), backgrounds from crust up to surface2, and an accent per kind of thing, so a post's parts read apart at
+   a glance: links blue, mentions lavender, hashtags teal, and each count its own colour. */
 :root {
   --pink: #f4b8e4;
   --mauve: #ca9ee6;
   --red: #e78284;
   --peach: #ef9f76;
+  --yellow: #e5c890;
   --green: #a6d189;
   --teal: #81c8be;
   --sapphire: #85c1dc;
@@ -37,7 +38,8 @@ a {
   color: var(--blue);
   text-decoration: none;
 }
-a:hover {
+a:hover,
+.translated button:hover {
   text-decoration: underline;
 }
 .kitter {
@@ -187,11 +189,18 @@ button {
   top: 0;
   height: 0.5rem; /* to 0.25rem above the avatar */
 }
+.repost,
+.byline {
+  margin: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
 .repost {
-  margin: 0 0 0.25rem;
+  margin-bottom: 0.25rem;
   font-size: 0.85em;
   font-weight: 600;
-  color: var(--green);
+  color: var(--green); /* bare text: the arrow, handle, "reposted" and date */
 }
 .repost.pinned {
   color: var(--peach);
@@ -215,26 +224,58 @@ button {
   margin-right: 0.35rem;
   vertical-align: -0.25rem;
 }
+.repost .avatar.small {
+  width: 1.65rem; /* two thirds of a post's avatar */
+  height: 1.65rem;
+  vertical-align: middle;
+}
 .byline {
-  margin: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
   color: var(--overlay); /* the handle, a bare text node */
 }
-.byline .name {
+.name {
   color: var(--text);
   font-weight: bold;
+}
+/* X's check after a name: a seal with the check cut out, masking the badge's colour. */
+[data-badge]::after {
+  content: "";
+  display: inline-block;
+  width: 1.1em;
+  height: 1.1em;
+  margin-left: 0.2em;
+  vertical-align: -0.15em;
+  background: var(--sapphire);
+  mask: url("data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'><path fill-rule='evenodd' d='M12 .5l3.6 2.9 4.5.5.5 4.5 2.9 3.6-2.9 3.6-.5 4.5-4.5.5-3.6 2.9-3.6-2.9-4.5-.5-.5-4.5-2.9-3.6 2.9-3.6.5-4.5 4.5-.5ZM7 12.3l1.4-1.4 2.4 2.4 5-5.1 1.4 1.4-6.4 6.5z'/></svg>")
+    center / contain no-repeat;
+}
+[data-badge="gold"]::after {
+  background: var(--yellow);
+}
+[data-badge="grey"]::after {
+  background: var(--subtext);
+}
+.affiliate img {
+  width: 1em;
+  height: 1em;
+  margin-left: 0.25em;
+  border-radius: 3px; /* square, as X draws an organisation */
+  vertical-align: -0.15em;
 }
 .byline .when {
   color: inherit;
 }
+.translated {
+  margin: 0.2rem 0 0;
+  font-size: 0.85em;
+  color: var(--overlay);
+}
+.translated button {
+  padding: 0;
+  color: var(--blue);
+}
 .text {
   margin: 0.2rem 0 0;
   white-space: pre-wrap;
-  overflow-wrap: anywhere;
-}
-.text a {
   overflow-wrap: anywhere;
 }
 .text .mention {
@@ -299,13 +340,23 @@ button {
   max-height: 95vh;
   object-fit: contain;
 }
-.viewer .count {
+.viewer .count,
+.toast {
   position: absolute;
   bottom: 1rem;
   padding: 0.15rem 0.6rem;
   border-radius: 999px;
   background: var(--surface);
   color: var(--subtext);
+}
+.toast {
+  position: fixed;
+  left: 50%;
+  translate: -50%;
+  margin: 0;
+}
+.toast:empty {
+  display: none;
 }
 /* A quoted post sits a surface lower than the post around it, so the two never blend. */
 .quote {
@@ -334,6 +385,14 @@ button {
 }
 .counts .likes {
   color: var(--pink);
+}
+.share {
+  margin-left: auto; /* at the row's end, where X puts its share button */
+  padding: 0 0.3rem;
+  border-radius: 999px;
+}
+.share:hover {
+  background: var(--surface);
 }
 .error {
   margin: 0.75rem 1rem;

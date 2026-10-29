@@ -35,7 +35,13 @@ COMMUNITY_POST = "2112292195776508111"  # the recorded community's first post
 PINNED = "2019881223666233717"  # the recorded profile's pinned post (@XDevelopers, user 2244994945)
 QUOTING, QUOTED = "2112647302624002440", "2112645096063873329"  # a post of the recording, and the post it quotes
 REPLY = "2103910018441769398"  # in the recorded posts and replies (the Replies tab), not in the recorded posts
+# Recorded posts with X's ready translation into English: Unamuno's, in Spanish, reposted a day later by Toomas Ilves,
+# and Barak Ravid's, in Hebrew, whose translation mentions @N12News.
+SPANISH, HEBREW = "2112649305458983072", "2112984881110126881"
+# Recorded authors with each badge: Polymarket's and the US mission's accounts also show their organisation.
+GOLD, GREY, BLUE = "2112976973454524794", "2112986761055936551", "2112972948248125829"
 DETAIL = "1649191520250245121"  # @XDevelopers' post whose page and replies the fake serves (fixture/server.py)
+STRANGER = "1649255409897861120"  # @AlSultan_Meriam's reply on that page: "This is terrible!"
 LOG = "/var/log/fake-x.log"
 OUT = pathlib.Path(os.environ["out"])
 
@@ -60,8 +66,8 @@ def page_state() -> str:
 
 
 def wait(expression: str, seconds: float = 8):
-    """The expression's value once truthy, polled in the page. 8 s, as the slowest clean scenario takes 3: a caught
-    plant mostly fails by waiting this out (Oct 28, 2026)."""
+    """The expression's value once truthy, polled in the page, for 8 s by default: short, as a caught plant mostly
+    fails by waiting it out (Oct 28, 2026)."""
     end = time.monotonic() + seconds
     while time.monotonic() < end:
         try:
@@ -96,10 +102,12 @@ def wait_request(since: int, test: Callable[[dict], bool], what: str, seconds: f
 def go(to: str | Callable[[], object], until: str = "document.readyState !== 'loading'") -> None:
     """Opens the URL `to`, or runs `to` to leave the page, then waits for `until` in the next page. The page-load
     strategy is "none", so get() returns at once: a kitter page never finishes loading for WebDriver (content.js stops
-    x.com's page). Marking the old document keeps every wait after this from passing on it."""
+    x.com's page). Marking the old document keeps every wait after this from passing on it. Skipping about:blank keeps
+    it from passing on the blank page a navigation can show first, which a clean run took for the page a click opened
+    (Oct 29, 2026)."""
     js("document.documentElement.dataset.left = ''")
     browser.get(to) if isinstance(to, str) else to()
-    wait(f"document.documentElement.dataset.left === undefined && {until}")
+    wait(f"document.documentElement.dataset.left === undefined && location.href !== 'about:blank' && {until}")
 
 
 def open_feed() -> None:
@@ -139,16 +147,17 @@ def start_browser() -> None:
     browser = webdriver.Remote(command_executor=f"http://127.0.0.1:{driver_port}", options=options)
     browser.set_window_size(1280, 900)
     # Firefox installs krusta by policy only once it runs, and a page opened before its content script is registered
-    # stays x.com's own: under load, three of 31 plants once failed so before any scenario ran (Oct 28, 2026).
-    end = time.monotonic() + 8
+    # stays x.com's own. Under load that took over 8 s in three of 73 plant sessions (Oct 29, 2026).
+    end = time.monotonic() + 30
     while not chrome("return WebExtensionPolicy.getByID('krusta@kittyandrew')?.contentScripts.length > 0"):
-        assert time.monotonic() < end, "krusta did not start within 8 s"
+        assert time.monotonic() < end, "krusta did not start within 30 s"
         time.sleep(0.1)
     go("https://x.com/settings")  # kitter's "not in kitter yet" page, which asks X nothing
     wait("document.querySelector('main.kitter')")
     # X's session as a signed-in browser holds it: `auth_token` out of the page's reach, `ct0` readable.
     browser.add_cookie({"name": "auth_token", "value": SESSION, "path": "/", "secure": True, "httpOnly": True})
     browser.add_cookie({"name": "ct0", "value": CSRF, "path": "/", "secure": True})
+    browser.add_cookie({"name": "lang", "value": "uk", "path": "/", "secure": True})  # the account's language on x.com
 
 
 def takeover() -> None:
@@ -325,7 +334,11 @@ def profile() -> None:
         return [p.querySelector('h1').textContent, p.querySelector('.text').textContent, link?.textContent,
           link?.getAttribute('href'), [...p.querySelectorAll('.follows b')].map((b) => b.textContent)]""")
     bio = "The voice of the X Dev team and your official source for updates, news, and events, related to the X API."
+    bio += " Ask @API, not dev@x.com."
     assert shown == ["Developers", bio, "docs.x.com", "https://docs.x.com/", ["770", "697.9K"]], f"the header: {shown}"
+    # X marks no entity for a bio's @handle: kitter finds it, but not the one inside an address.
+    mentions = js("return [...document.querySelectorAll('.profile .text a')].map((a) => [a.textContent, a.getAttribute('href')])")
+    assert mentions == [["@API", "/API"]], f"the bio's mentions: {mentions}"
     title = js("return document.title")
     assert title == "Developers (@XDevelopers) / X", f"the profile's title: {title!r}"
     first = wait("document.querySelector('article.post .byline a:last-of-type')?.getAttribute('href')")
@@ -380,6 +393,8 @@ def post_page() -> None:
     assert found == ["16", "160", "1.1K", "504.0K"], f"the quoted post's replies, reposts, likes, views: {counts!r}"
     opened = click_in_post(QUOTING, ":scope > .quote .byline")
     assert opened.endswith(f"/status/{QUOTED}"), f"a click in a quote opened {opened}, not the quoted post"
+    opened = click_in_post(QUOTING, ":scope > .quote .byline img.avatar")
+    assert opened == "/lrozen", f"a click on a quoted post's avatar opened {opened}, not its author's profile"
     go(f"https://x.com/XDevelopers/status/{DETAIL}")
     shown = wait(
         """(p => p.length > 10 && [p.length, p.findIndex((a) => a.classList.contains('focal')),
@@ -436,11 +451,148 @@ def thread() -> None:
     assert marked == [DETAIL, "1649191521323995138", "1649191522485817345"], f"on the post's page, marked as a thread: {marked}"
 
 
-def chrome(script: str):
-    """`script` run in the browser's own window (WebDriver's chrome context), where the toolbar is."""
+def repost() -> None:
+    """A repost's line names who reposted it as a byline does, with their avatar at two thirds of a post's, and the
+    repost's own time, a day after the post's."""
+    open_feed()
+    shown = js(
+        """const a = arguments[0], line = a.querySelector(':scope > .repost'), small = line?.querySelector('a.name > img.avatar');
+        const width = (img) => img.getBoundingClientRect().width, avatar = a.querySelector(':scope > .author img');
+        return [line?.textContent, small?.parentElement.getAttribute('href'),
+          a.querySelector(':scope > .byline .when').textContent, small && width(small) / width(avatar)]""",
+        post(SPANISH),
+    )
+    line, profile, posted, ratio = shown
+    assert re.fullmatch(r"↻ toomas hendrik ilves @IlvesToomas reposted · Oct 21(, \d{4})?", line or ""), (
+        f"the repost's line: {shown}"
+    )
+    assert profile == "/IlvesToomas" and posted.startswith("Oct 20") and 0.6 < ratio < 0.72, f"the repost's line: {shown}"
+    go(lambda: js("arguments[0].querySelector(':scope > .repost img').click()", post(SPANISH)))
+    assert urlparse(browser.current_url).path == "/IlvesToomas", f"the reposter's avatar opened {browser.current_url}"
+
+
+def badges() -> None:
+    """X's checks after a name, in its three colours, and an account's organisation, in the feed and on a profile."""
+    since = log_mark()
+    open_feed()
+    shown = {
+        rest_id: js(
+            """const name = arguments[0].querySelector(':scope > .byline .name'), org = name.nextElementSibling;
+            const shown = (a) => [a.getAttribute('href'), a.title, !!a.querySelector('img[src^="https://pbs"]')];
+            return [name.dataset.badge ?? null, getComputedStyle(name, '::after').backgroundColor,
+              org?.matches('a.affiliate') ? shown(org) : null]""",
+            post(rest_id),
+        )
+        for rest_id in (GOLD, GREY, BLUE, ENTITIES)
+    }
+    expected = {
+        GOLD: ["gold", "rgb(229, 200, 144)", ["/Polymarket", "Polymarket", True]],
+        GREY: ["grey", "rgb(165, 173, 206)", ["/StateDept", "Department of State", True]],
+        BLUE: ["blue", "rgb(133, 193, 220)", None],
+        ENTITIES: [None, "rgba(0, 0, 0, 0)", None],
+    }
+    assert shown == expected, f"the badges of a gold, grey, blue and unbadged author: {shown}"
+    language = [
+        next((v for k, v in r["headers"].items() if k.lower() == "x-twitter-client-language"), None)
+        for r in requests(since)
+        if r.get("operation") == "HomeTimeline"
+    ]
+    assert language[:1] == ["uk"], f"HomeTimeline asked in {language}, not the account's language (its lang cookie)"
+    go("https://x.com/XDevelopers")
+    header = wait("""(h => h && [h.querySelector('[data-badge]')?.dataset.badge,
+        h.querySelector('.affiliate')?.getAttribute('href')])(document.querySelector('.profile h1'))""")
+    assert header == ["gold", "/X"], f"the profile's badge and organisation: {header}"
+
+
+def translation() -> None:
+    """A post X sent translated shows the translation first, as x.com does, with a button to the original and back."""
+    open_feed()
+    article = post(SPANISH)
+    words = """const part = (css) => arguments[0].querySelector(':scope > ' + css)?.textContent;
+        return [part('.translated'), part('.text')]"""
+    shown = js(words, article)
+    assert shown[0] == "Translated from Spanish · Show original", f"the translation's line: {shown}"
+    assert "The United States and Italy have been" in shown[1], f"the post's words, translated: {shown}"
+    js("arguments[0].querySelector(':scope > .translated button').click()", article)
+    shown = js(words, article)
+    assert shown[0].endswith("Show translation") and "Estados Unidos e Italia" in shown[1], f"after Show original: {shown}"
+    js("arguments[0].querySelector(':scope > .translated button').click()", article)
+    shown = js(words, article)
+    assert shown[0].endswith("Show original") and "The United States" in shown[1], f"after Show translation: {shown}"
+    # The translation's own entities: Ravid's post, translated, mentions @N12News.
+    mention = js(
+        "return [...arguments[0].querySelectorAll(':scope > .text a.mention')].map((a) => a.getAttribute('href'))", post(HEBREW)
+    )
+    assert mention == ["/N12News"], f"the Hebrew post's translated mentions: {mention}"
+
+
+def load_more() -> None:
+    """No button where X has nothing more: a post page past its replies, and a timeline past its end. X still sends a
+    cursor for both, which pages only "Discover more" and empty pages."""
+    since = log_mark()
+    go(f"https://x.com/McFaul/status/{PLAIN}")
+    wait("document.querySelector('article.post.focal')")
+    time.sleep(1)
+    shown = js("return [document.querySelectorAll('article.post').length, document.querySelector('.more')?.textContent ?? null]")
+    asked = [r["cursor"] for r in requests(since) if r.get("operation") == "TweetDetail" and r.get("cursor")]
+    assert shown == [1, None] and not asked, f"a post with no replies: {shown}, its later pages asked for: {asked}"
+    open_feed()
+    assert js("return document.querySelector('.more')?.textContent") == "Load more", "no button under a feed with more pages"
+    js("document.querySelectorAll('.tab')[1].click()")
+    wait("document.querySelector('article.post .byline a:last-of-type')?.href.includes('/status/8')")
+    js("window.scrollTo(0, document.documentElement.scrollHeight)")
+    wait("!document.querySelector('.more')")
+
+
+NOT_SHARED = "kitter test: nothing shared yet"
+
+
+def shared(article, part: str = ":scope > .counts .share", keyboard: bool = False) -> list:
+    """What the share button `part` of `article` put on the clipboard, and the path the tab shows after. Clicked as a
+    user clicks, or reached with Tab from the control before it and pressed with Enter. The clipboard is read in the
+    browser's own window, so the test sees what it holds rather than what the page says it wrote."""
+    chrome(f"Cc['@mozilla.org/widget/clipboardhelper;1'].getService(Ci.nsIClipboardHelper).copyString('{NOT_SHARED}')")
+    button = js("const b = arguments[0].querySelector(arguments[1]); b.scrollIntoView({block: 'center'}); return b", article, part)
+    if keyboard:
+        js("const all = [...document.querySelectorAll('a[href], button')]; all[all.indexOf(arguments[0]) - 1].focus()", button)
+        ActionChains(browser).send_keys(Keys.TAB).perform()
+        assert js("return document.activeElement === arguments[0]", button), f"Tab did not reach the share button {part}"
+        ActionChains(browser).send_keys(Keys.ENTER).perform()
+    else:
+        button.click()  # WebDriver's own click, a user's: Firefox lets a page write the clipboard only after one
+    end = time.monotonic() + 8
+    while (copied := chrome("return navigator.clipboard.readText()")) == NOT_SHARED and time.monotonic() < end:
+        time.sleep(0.1)
+    return [copied, js("return location.pathname")]
+
+
+def share() -> None:
+    """A post's share button copies its link on x.com, as the "Copy link" of X's share menu does, and a toast says so
+    for a moment: in the feed, where a repost's link is the original's and a quote's the quoted post's, and on a post's
+    page, for the post itself by keyboard and for a stranger's reply."""
+    open_feed()
+    shown = shared(post(PLAIN))
+    assert shown == [f"https://x.com/McFaul/status/{PLAIN}", "/home"], f"a post's share button copied, then showed: {shown}"
+    toast = wait("(t => t.textContent && [t.textContent, t.getAttribute('role')])(document.querySelector('.toast'))")
+    assert toast == ["Copied to clipboard", "status"], f"the toast after a share, and its role: {toast}"
+    wait("document.querySelector('.toast').textContent === ''")  # gone after 3 s
+    copied = [shared(post(SPANISH))[0], shared(post(QUOTING), ":scope > .quote .share")[0]]
+    expected = [f"https://x.com/UnamunoAgain/status/{SPANISH}", f"https://x.com/lrozen/status/{QUOTED}"]
+    assert copied == expected, f"the links of a repost and of a quoted post: {copied}"
+    go(f"https://x.com/XDevelopers/status/{DETAIL}")
+    wait("document.querySelectorAll('article.post').length > 10")
+    page = f"/XDevelopers/status/{DETAIL}"
+    pairs = [shared(post(DETAIL), keyboard=True), shared(post(STRANGER))]
+    wanted = [[f"https://x.com{page}", page], [f"https://x.com/AlSultan_Meriam/status/{STRANGER}", page]]
+    assert pairs == wanted, f"on a post's page, the links of the post, by keyboard, and of a reply: {pairs}"
+
+
+def chrome(script: str, *args):
+    """`script` run in the browser's own window (WebDriver's chrome context), where the toolbar is; a promise it
+    returns is awaited, as in the page."""
     browser.execute("SET_CONTEXT", {"context": "chrome"})
     try:
-        return js(script)
+        return js(script, *args)
     finally:
         browser.execute("SET_CONTEXT", {"context": "content"})
 
@@ -470,18 +622,14 @@ def toggle() -> None:
 def in_content_script(code: str):
     """`code`'s value, a promise's awaited, run where krusta's content scripts run in the tab, as the add-on's own
     `scripting.executeScript` would: Firefox's ExtensionContent actor, which takes its parent's options."""
-    browser.execute("SET_CONTEXT", {"context": "chrome"})
-    try:
-        return browser.execute_async_script(
-            """const [code, done] = arguments, page = gBrowser.selectedBrowser.browsingContext.currentWindowGlobal;
-            const options = {extensionId: 'krusta@kittyandrew', jsExecuteScriptSources: [{code}], cssPaths: [],
-              matches: ['https://x.com/*'], runAt: 'document_start', world: 'ISOLATED', wantReturnValue: true};
-            page.domProcess.getActor('ExtensionContent').sendQuery('Execute', {windows: [page.innerWindowId], options})
-              .then((results) => done(results[0]), (e) => done('failed: ' + (e.message ?? e)));""",
-            code,
-        )
-    finally:
-        browser.execute("SET_CONTEXT", {"context": "content"})
+    return chrome(
+        """const page = gBrowser.selectedBrowser.browsingContext.currentWindowGlobal;
+        const options = {extensionId: 'krusta@kittyandrew', jsExecuteScriptSources: [{code: arguments[0]}], cssPaths: [],
+          matches: ['https://x.com/*'], runAt: 'document_start', world: 'ISOLATED', wantReturnValue: true};
+        return page.domProcess.getActor('ExtensionContent').sendQuery('Execute', {windows: [page.innerWindowId], options})
+          .then((results) => results[0], (e) => 'failed: ' + (e.message ?? e));""",
+        code,
+    )
 
 
 def api_only() -> None:
@@ -570,16 +718,11 @@ def update() -> None:
     open_feed()
 
     def reinstall() -> None:
-        browser.execute("SET_CONTEXT", {"context": "chrome"})
-        try:
-            version = str(
-                browser.execute_async_script("""const done = arguments[arguments.length - 1];
-                const { AddonManager } = ChromeUtils.importESModule('resource://gre/modules/AddonManager.sys.mjs');
-                AddonManager.getInstallForURL('file:///run/krusta.xpi').then((i) => i.install())
-                  .then((a) => done(a.version), (e) => done('failed: ' + e));""")
-            )
-        finally:
-            browser.execute("SET_CONTEXT", {"context": "content"})
+        version = str(
+            chrome("""const { AddonManager } = ChromeUtils.importESModule('resource://gre/modules/AddonManager.sys.mjs');
+            return AddonManager.getInstallForURL('file:///run/krusta.xpi').then((i) => i.install())
+              .then((a) => a.version, (e) => 'failed: ' + e);""")
+        )
         assert not version.startswith("failed"), f"the reinstall: {version}"
 
     go(reinstall, "document.querySelectorAll('article.post').length > 50")
@@ -598,6 +741,11 @@ SCENARIOS: dict[str, Callable[[], None]] = {
     "profile-tabs": profile_tabs,
     "post": post_page,
     "thread": thread,
+    "repost": repost,
+    "badges": badges,
+    "translation": translation,
+    "load-more": load_more,
+    "share": share,
     "layouts": layouts,
     "viewer": viewer,
     "video": video,

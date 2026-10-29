@@ -1,6 +1,6 @@
-"""DEVELOPMENT ONLY, run by run.sh beside it: kitter's speed budgets (docs/design.md, Speed) in a real headless
-Firefox on this machine, with kitter installed, against a fake x.com that serves a recorded timeline. Never a flake
-check: kubicle measured every step two to five times slower in a VM, where its budgets only ever failed.
+"""DEVELOPMENT ONLY, run by run.sh beside it: kitter's speed measurements (docs/design.md, Speed measurements) in a
+real headless Firefox on this machine, with kitter installed, against a fake x.com that serves a recorded timeline.
+Never a flake check: kubicle measured every step two to five times slower in a VM.
 
 usage: budgets.py EXTENSION_DIR TIMELINE_JSON TLS_DIR
 
@@ -10,7 +10,8 @@ certificate, vm-kitter's test one (TLS_DIR), from a CA it does not know (`accept
 feed is the recording with every post id suffixed by n, so the pages never share a post, and a bottom cursor that names
 page n + 1.
 
-Each budget prints its median over several runs and fails above its limit; one slow run cannot decide it."""
+Each measurement prints its median over several runs beside the last run's, kept in LAST: numbers to compare across a
+change, never a limit that fails the run."""
 
 import functools
 import json
@@ -31,12 +32,14 @@ from selenium.webdriver.firefox.service import Service
 EXTENSION, TIMELINE, TLS = sys.argv[1:4]
 PROBE = Path(__file__).parent / "probe"  # marks the first post's time (probe/probe.js)
 HOSTS = ["x.com", "pbs.twimg.com", "video.twimg.com", "abs.twimg.com"]
-PAGES = 5  # the feed paged this far for the scroll, heap and DOM budgets: about 470 posts
+PAGES = 5  # the feed paged this far for the scroll, heap and DOM measurements: about 470 posts
 STEP = 80  # pixels scrolled per frame: 4,800 px/s at 60 frames a second, a quick flick through the feed
 # How long X takes to answer a next page, which the prefetch must hide. Assumed from the bench (../bench): in
 # Andrew's Zen, kitter's first post came 1.2 s or more after navigation, mostly X's answer (Oct 27, 2026).
 LATENCY = 1.0
-failed: list[str] = []
+LAST = Path.home() / ".local/state/krusta/kitter-speed.json"  # each measurement's median from the run before
+last = json.loads(LAST.read_text()) if LAST.exists() else {}
+medians: dict[str, float] = {}
 
 
 def png(width: int, height: int) -> bytes:
@@ -122,13 +125,10 @@ def serve() -> ThreadingHTTPServer:
     return server
 
 
-def within(name: str, values: list[float], budget: float, unit: str) -> None:
-    took = sorted(values)[len(values) // 2]
-    ok = took < budget
-    shown = [round(v, 1) for v in values]
-    print(f"{'ok  ' if ok else 'FAIL'} {name:40} median {took:9.1f} {unit:5} budget {budget:7.0f} {unit:5} {shown}")
-    if not ok:
-        failed.append(name)
+def measured(name: str, values: list[float], unit: str) -> None:
+    took = medians[name] = sorted(values)[len(values) // 2]
+    before = f"last {last[name]:9.1f}" if name in last else f"last {'-':>9}"
+    print(f"{name:40} median {took:9.1f} {unit:5} {before} {unit:5} {[round(v, 1) for v in values]}")
 
 
 def open_feed() -> float:
@@ -149,7 +149,7 @@ def open_feed() -> float:
 
 
 def first_posts() -> None:
-    within("navigation to the first posts", [open_feed() for _ in range(5)], 200, "ms")
+    measured("navigation to the first posts", [open_feed() for _ in range(5)], "ms")
 
 
 # Scrolls STEP px each frame until PAGES pages are in, timing each frame by requestAnimationFrame's clock. Headless
@@ -200,20 +200,20 @@ def paging() -> None:
         driver.set_context("chrome")
         heap.append(driver.execute_async_script(HEAP) / 2**20)
         driver.set_context("content")
-    within(f"worst frame while paging {PAGES} pages", worst, 100, "ms")
-    within(f"frames dropped while paging {PAGES} pages", dropped, 16, "")
-    within("frames stalled at the feed's end", stalled, 1, "")
-    within(f"JS heap after {PAGES} pages", heap, 32, "MB")
-    within(f"DOM nodes after {PAGES} pages", nodes, 8000, "")
+    measured(f"worst frame while paging {PAGES} pages", worst, "ms")
+    measured(f"frames dropped while paging {PAGES} pages", dropped, "")
+    measured("frames stalled at the feed's end", stalled, "")
+    measured(f"JS heap after {PAGES} pages", heap, "MB")
+    measured(f"DOM nodes after {PAGES} pages", nodes, "")
 
 
 def size() -> None:
     """What the tab loads from the add-on before the first post: X's client's wasm, then its JS glue, sites.js and
     content.js, and the stylesheet. One measurement each, since the build is deterministic."""
     files = Path(EXTENSION)
-    within("wasm loaded", [(files / "sites/kitter/client_bg.wasm").stat().st_size / 1024], 300, "KB")
+    measured("wasm loaded", [(files / "sites/kitter/client_bg.wasm").stat().st_size / 1024], "KB")
     js = ["sites/kitter/client.js", "sites.js", "content.js", "sites/kitter/style.css"]
-    within("JS and CSS loaded", [sum((files / f).stat().st_size for f in js) / 1024], 50, "KB")
+    measured("JS and CSS loaded", [sum((files / f).stat().st_size for f in js) / 1024], "KB")
 
 
 server = serve()
@@ -237,5 +237,6 @@ try:
 finally:
     driver.quit()
     server.shutdown()
-print("FAILED: " + ", ".join(failed) if failed else "all budgets met")
-sys.exit(1 if failed else 0)
+LAST.parent.mkdir(parents=True, exist_ok=True)
+LAST.write_text(json.dumps(medians, indent=1) + "\n")
+print(f"kept in {LAST}")

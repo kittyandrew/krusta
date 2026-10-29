@@ -12,7 +12,7 @@ a test proves what a page never asked for.
   - CommunityTweetsTimeline (for COMMUNITY_ID) and UserTweets, UserTweetsAndReplies and UserMedia (for USER_ID):
     one page, then the end.
   - UserByScreenName: @XDevelopers, and no user for any other handle. PinnedTimelines: pinned.json.
-  - TweetDetail: POST_ID's page with its replies, and an empty one for any other post.
+  - TweetDetail: POST_ID's page with its replies, LONELY_ID's with none, and an empty one for any other post.
 - abs.twimg.com: the bundle, which marks the page it ran in.
 - pbs.twimg.com: an image for `?name=small` or `?name=large`, avatars and banners; nothing at other sizes.
 - video.twimg.com: an MP4 for any .mp4 path, with byte ranges as media elements ask.
@@ -36,6 +36,7 @@ PAGE1_CURSOR = (DATA / "page1-cursor").read_text()
 LIST_ID, COMMUNITY_ID = "1000000000000000099", "1000000000000000098"  # pages.py's pinned tabs
 USER_ID, HANDLE = "2244994945", "xdevelopers"  # the recorded profile's
 POST_ID = "1649191520250245121"  # the recorded post page's post, by @XDevelopers
+LONELY_ID = "2112986636392833489"  # McFaul's post of the recorded feed, with no replies (default.nix)
 # x.com's public web bearer, the one kitter_api::BEARER sends.
 BEARER = "Bearer AAAAAAAAAAAAAAAAAAAAANRILgAAAAAAnNwIzUejRCOuH5E6I8xnZz4puTs%3D1Zv7ttfk8LF81IUq16cHjhLTvJu4FA33AGWWjCpTnA"
 SESSION = "kitter-test-session"  # the auth_token cookie the scenarios seed (sites/kitter/tests/scenarios.py)
@@ -149,7 +150,7 @@ class Handler(BaseHTTPRequestHandler):
             "UserTweets": "user-tweets" if variables.get("userId") == USER_ID else "end",
             "UserTweetsAndReplies": "user-replies" if variables.get("userId") == USER_ID else "end",
             "UserMedia": "user-media" if variables.get("userId") == USER_ID else "end",
-            "TweetDetail": "post" if variables.get("focalTweetId") == POST_ID else "end",
+            "TweetDetail": {POST_ID: "post", LONELY_ID: "lonely"}.get(str(variables.get("focalTweetId")), "end"),
         }[operation]
 
     def video(self, entry: dict) -> None:

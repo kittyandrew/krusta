@@ -19,12 +19,12 @@ Using the web API breaks X's terms of service; the account is Andrew's own, read
 ## Sites
 
 krusta is one add-on for any number of sites, each through an interface of its own: so far kitter, for X. The
-shell in `extension/` is the same for all of them: it takes the page over, keeps the site's own app out, lends
-the interface the page's session and owns the toolbar button. Everything about one interface lives in
-`sites/<id>/`, the folder named after it, and the build finds each folder there.
-The name also titles the button and names its crates; a tab keeps the site's own title and icon. Each
-interface's client is its own wasm, loaded only on its site: a new one never makes kitter heavier. There is no
-shared Rust crate yet; one comes when a second interface shows what it shares (Oct 28, 2026).
+shell in `extension/` is the same for all of them: it takes the page over, keeps the site's own app out, lends the
+interface the page's session and owns the toolbar button. Everything about one interface lives in `sites/<id>/`,
+the folder named after it, and the build finds each folder there. The name also titles the button and names its
+crates; a tab keeps the site's own title and icon. Each interface's client is its own wasm, loaded only on its
+site: a new one never makes kitter heavier. There is no shared Rust crate yet; one comes when a second interface
+shows what it shares (Oct 28, 2026).
 
 Adding an interface `<id>`:
 
@@ -96,8 +96,11 @@ at first; pin it from there to keep it on the toolbar.
 - **A post's page** (TweetDetail, `focalTweetId`) lists the thread it answers, the post, then its replies, each
   reply thread as a module in X's order; the post itself is marked and scrolled to, and more replies page in
   through the bottom cursor like a timeline. Its "Discover more" module (`tweetdetailrelatedtweets-<n>`, posts
-  from across X) is left out. Replies X hides behind "Show more replies" (`cursor-showmorethreads-<n>`) are not
-  reached yet (Oct 28, 2026).
+  from across X) is left out. X adds it once the post's replies have run out, and the bottom cursor beside it pages
+  only more of it, so the page ends there: @mil_in_ua's post with no replies came as the post, the module and a
+  cursor whose next page held only another module, while a post with eleven replies paged them over three pages
+  with no module (Oct 28, 2026). Replies X hides behind "Show more replies" (`cursor-showmorethreads-<n>`) are not
+  reached yet.
 - **Threads** are joined by a line, as on X: from a post's avatar to the next post's, when that one answers it
   (`in_reply_to_status_id_str`), in every timeline. On a post's page, the post itself joins only its author's
   next post, so a thread it starts reads on from it, but a stranger's reply does not.
@@ -118,20 +121,57 @@ at first; pin it from there to keep it on the toolbar.
   a website or banner is left off. Otherwise a handle such as `/evil.example` would link to `//evil.example`, and a
   `javascript:` link would run in x.com's page, whose CSP krusta drops. Hashtags are percent-encoded in their path.
 - **Parsing** walks the JSON for `instructions` and keeps tweets, reposts (shown as the original with who
-  reposted it), quotes, threads, a profile's pinned post (`TimelinePinEntry`, shown first) and the bottom
-  cursor, and drops ads. A post a later page repeats is shown once. Users and profiles read X's 2025 fields
-  (`core`, `avatar`, `profile_bio`, `relationship_counts`, `banner`), falling back to `legacy`.
+  reposted it and when: a repost's own `created_at`), quotes, threads, a profile's pinned post (`TimelinePinEntry`,
+  shown first) and the bottom cursor, and drops ads. A post a later page repeats is shown once. Users and profiles
+  read X's 2025 fields (`core`, `avatar`, `profile_bio`, `relationship_counts`, `banner`, `verification`), falling
+  back to `legacy`.
+- **Badges**: a user's `verification.verified_type` "Business" is X's gold check and "Government" its grey one,
+  else `is_blue_verified` is the blue one; `affiliates_highlighted_label` names the organisation an account belongs
+  to, with its picture and a link to its profile. A bio's @handles carry no entity: X marks only a bio's links
+  (`profile_bio.entities.description` was empty for @Dimillian's "Codex @OpenAI", Oct 28, 2026), and x.com's app
+  finds the handles itself, as twitter-text does. So the parser finds them by twitter-text's rule; a bio's
+  hashtags stay text.
+- **Translations** come with the post: with the switch `responsive_web_grok_show_grok_translated_post` on, X adds
+  `grok_translated_post_with_availability` to each post, holding Grok's translation, with its own entities, when
+  `is_available`. x.com's app shows that one first, "Translated from German" with "Show original", and sends no
+  request for it (`main.17977177d3ffc8c4a.js`, Oct 28, 2026); so does kitter, at no cost to a page's load. X
+  translates into the `x-twitter-client-language` header: the same post came in French for `fr`. x.com's app sends
+  the account's language there, which x.com keeps in its `lang` cookie, and kitter sends that cookie, "en" without
+  one. A post X has no translation for offers one only on its own page in x.com's app, on a click, through
+  `POST /2/grok/translation.json` (`{content_type: "POST", id, dst_lang}`, streamed) or, with Grok off, the
+  REST call `strato/column/None/tweetId=<id>,.../translation/service/translateTweet`. Both lie outside
+  `/i/api/graphql/`, so `krustaFetch` refuses them, and kitter offers none yet (Oct 28, 2026).
 
 ## Posts and media
 
 - **A click** anywhere in a post opens its page, and in a quote the quoted post's, except on a link, button,
   photo or video, or when it ends a text selection; the date links there too, and the avatar to the profile. One
-  click listener serves the whole page. A quoted post's byline starts with a small avatar, as on X, having no
-  avatar column.
+  click listener serves the whole page.
+- **Bylines** name an account the same way wherever one is named: its name, opening its kitter profile, then its
+  badge, the picture of its organisation, opening that one's, and its handle. A quoted post's byline starts with
+  a small avatar inside the name's link, as on X, having no avatar column, and a repost's line names who reposted
+  it so too, with their avatar at two thirds of a post's, then the repost's own date: "↻ Name @handle reposted ·
+  Oct 21". A badge is a mask over the badge's colour, drawn after the name in CSS, so it adds no element.
+- **Translations** X sent show first, under "Translated from <language> · Show original", whose button switches
+  to the original and back; the language's English name comes from `Intl.DisplayNames`, which throws on a
+  malformed tag, so the parser takes only a language and a region or script.
+- **"Load more"** under a timeline retries a page that failed, or asks for the next one before a scroll does. It is
+  gone where X has nothing more: past a timeline's last page, and on a post's page past its replies.
+- **Share**: a 🔗 button ends each post's counts, a quote's too, and copies the post's address on x.com,
+  `https://x.com/<handle>/status/<id>` from the handle and id X sent (`page`), as the "Copy link" of X's share menu
+  does; a repost's is the original post's. A toast at the bottom then says "Copied to clipboard", X's words, for 3 s,
+  or "Failed to copy to clipboard". It is a `<button>` named "Copy link", so Tab reaches it and Enter presses it, and
+  the toast is a status region kept in the page, which screen readers read as its words change. X's menu was read
+  from its strings in fa0311/TwitterInternalAPIDocument (Oct 27, 2026), not opened live. Its other entries are left
+  out: Send via Chat and Bookmark to Folder (Premium) call X's API, and Share post via … calls `navigator.share`,
+  which Firefox on Linux lacks (`dom.webshare.enabled` is off in Firefox 159, Oct 28, 2026).
 - **Text** is split at X's entities: links open in a new tab at their full address and show X's short form;
-  @mentions and authors' names open their kitter profile, #hashtags open on x.com (`?krusta=off`). Entity indices
-  count the text as X sends it, with `&amp;` still encoded, so the split comes before decoding. The media link is
-  always cut: media shared from another post leaves it inside `display_text_range`.
+  @mentions, a bio's too, and authors' names open their kitter profile, #hashtags open on x.com (`?krusta=off`). X
+  HTML-encodes `&`, `<` and `>` in a post's `full_text` and counts its entity indices in the encoded text, so that
+  text is split before it is decoded. A long post's text (`note_tweet`) and a bio come as written: twscrape's
+  recorded post 2107952086193508716 has "&amp;" in its `full_text` and "&" in its `note_tweet` (Oct 29, 2026).
+  Translations are taken as written too, unchecked: no recorded one holds the three. The media link is always cut:
+  media shared from another post leaves it inside `display_text_range`.
 - **Media** follows X's layouts: one at its own shape (capped at 32rem), two side by side, three as one tall and
   two stacked, four in a square; past four, the first four.
 - **Photos** load at X's `small` size (680 px wide at most) and open in a viewer at `large` (2048 px at most);
@@ -142,8 +182,8 @@ at first; pin it from there to keep it on the toolbar.
 
 ## Speed
 
-- The client is 120 KB of gzipped wasm plus 7 KB of gzipped JS glue (Oct 28, 2026), against x.com's ~940 KB of
-  gzipped JS. Its sizes as loaded are budgets below.
+- The client is 130 KB of gzipped wasm plus 7 KB of gzipped JS glue (Oct 28, 2026), against x.com's ~940 KB of
+  gzipped JS. Its sizes as loaded are measured below (Speed measurements).
 - Off-screen posts skip layout and paint (`content-visibility: auto`); images load lazily and decode off the
   main thread. The next page starts loading six screens before the end, enough to hide X's ~1 s answer at a
   quick flick.
@@ -155,52 +195,54 @@ No unit tests: each suite runs the real program and is its own flake check. `vm-
 policy in Firefox Developer Edition (release Firefox takes only signed add-ons) inside a NixOS VM. A fake X there
 serves x.com, abs.twimg.com, pbs.twimg.com and video.twimg.com over TLS from a test CA. Its answers are twscrape's
 recordings, fetched by hash (a list timeline, @XDevelopers' profile and posts, a post's page, another account's
-replies and media, a community), plus derived ones (three photos, a shared GIF, two hostile posts, a second
-page, Following, a pinned list and community, and "Discover more" on the post's page). It checks each call's query
-id, method and feature switch names as X does. Its access log proves what a kitter tab never fetched. WebDriver
-never sees a kitter page finish loading (content.js stops x.com's), so the scenarios navigate with the "none"
-page-load strategy and wait for the new document themselves (`go`). The toolbar button is clicked in the
-browser's own window, WebDriver's chrome context, which geckodriver opens with `--allow-system-access`. From there
-the `api-only` scenario also calls `krustaFetch`, which the page cannot reach, in the content script's own world
-through Firefox's ExtensionContent actor, as the add-on's `scripting.executeScript` would. Each
-scenario has a planted bug that fails it (`.plants`); a failed run keeps its evidence in the store. Not covered:
-a service worker x.com registered before krusta was installed (a force-installed add-on cannot be removed to
-prepare that profile), and whether dropping x.com's CSP is needed against X's real policy (a strict test CSP did
-not block the content script's stylesheet). The fake checks a call's feature switches but not its variables: X
-answered TweetDetail 422 for a missing `withBirdwatchNotes`, which only the live check in the test Zen showed
-(Oct 28, 2026). So check a new call live (`.claude/rules/004-zen.md`) before trusting the VM's green.
+replies and media, a community), plus derived ones (three photos, a shared GIF, two hostile posts, a second page,
+Following, a pinned list and community, "Discover more" on the post's page, a post with no replies, and a bio that
+names an account). The recorded timeline already carries X's badges, organisations and translations (Spanish,
+Ukrainian and Hebrew posts into English). It checks each call's query id, method and feature switch names as X
+does. Its access log proves what a kitter tab never fetched. WebDriver never sees a kitter page finish loading
+(content.js stops x.com's), so the scenarios navigate with the "none" page-load strategy and wait for the new
+document themselves (`go`). The toolbar button is clicked in the browser's own window, WebDriver's chrome context,
+which geckodriver opens with `--allow-system-access`. From there the `api-only` scenario also calls `krustaFetch`,
+which the page cannot reach, in the content script's own world through Firefox's ExtensionContent actor, as the
+add-on's `scripting.executeScript` would, and the `share` scenario reads the clipboard, so it sees what the
+clipboard holds rather than what the page says it wrote. Each scenario has a planted bug that fails it
+(`.plants`); a failed run keeps its evidence in the store. Not covered: a service worker x.com registered before
+krusta was installed (a force-installed add-on cannot be removed to prepare that profile), and whether dropping
+x.com's CSP is needed against X's real policy (a strict test CSP did not block the content script's stylesheet).
+The fake checks a call's feature switches but not its variables: X answered TweetDetail 422 for a missing
+`withBirdwatchNotes`, which only the live check in the test Zen showed (Oct 28, 2026). So check a new call live
+(`.claude/rules/004-zen.md`) before trusting the VM's green.
 
-## Speed budgets
+## Speed measurements
 
 `sites/kitter/tests/budgets/run.sh` measures these on the development machine in a headless Firefox with kitter
 installed, against a fake x.com serving twscrape's recorded timeline (about 94 posts a page, next pages answered
-after 1 s, assumed from the bench below), and fails above them. Not in a VM, which kubicle measured two to five
-times slower.
-Each is a median of several runs; measured on palanok, Oct 27, 2026, after tabs, profiles and the six-screen
-prefetch. With the old two-screen prefetch, the stall budget failed at 148 frames.
+after 1 s, assumed from the bench below). Not in a VM, which kubicle measured two to five times slower. Each is a
+median of several runs, printed beside the run before it (kept in `~/.local/state/krusta/kitter-speed.json`). None
+is a limit that fails the run: they are numbers to compare across a change that should move them, and to notice one
+that moved without a reason (Andrew, Oct 29, 2026). Record a change's numbers here with what moved them.
 
-| Budget | Limit | Measured median |
-|---|---|---|
-| Navigation to the first posts | 200 ms | 82 to 205 ms, median 101 ms (Oct 28, 2026) |
-| Worst frame while paging 5 pages | 100 ms | 50 ms |
-| Frames dropped while paging 5 pages | 16 | 4 to 8, about one per page appended |
-| Frames stalled at the feed's end | 1 | 0 |
-| JS heap after 5 pages | 32 MB | 22.3 MB |
-| DOM nodes after 5 pages | 8000 | 7232, about 15 elements a post: the avatar floats in the post's padding, no wrappers (Oct 28, 2026) |
-| wasm loaded | 300 KB | 277.8 KB: tabs, communities, profiles and the post page took it past the old 240 KB (Oct 28, 2026) |
-| JS and CSS loaded | 50 KB | 48.2 KB: the full Frappe theme, the post page and thread lines (Oct 28, 2026) |
+| Measure | Median, and what moved it |
+|---|---|
+| Navigation to the first posts | 82 to 205 ms, median 101 ms (Oct 28, 2026) |
+| Worst frame while paging 5 pages | 50 ms, after tabs, profiles and the six-screen prefetch (Oct 27, 2026) |
+| Frames dropped while paging 5 pages | 4 to 8, about one per page appended |
+| Frames stalled at the feed's end | 0; 148 with the old two-screen prefetch |
+| JS heap after 5 pages | 24.8 MB, 24.0 MB before the share button (Oct 29, 2026) |
+| DOM nodes after 5 pages | 9249, about 20 elements a post: the share button added 656, one in each post's and quoted post's counts, to 8593 (Oct 29, 2026); 7232 on Oct 28, 2026, the avatar floating in the post's padding, no wrappers |
+| wasm loaded | 302.4 KB: tabs, communities, profiles and the post page took it past 240 KB, badges, translations and repost lines past 278 KB, the share button and its toast added 4.7 KB to 298.4 KB, and finding a bio's handles in the text's one split, with simpler paging, took 0.7 KB off 303.1 KB (Oct 29, 2026) |
+| JS and CSS loaded | 50.8 KB: the full Frappe theme, the post page, thread lines, badges and translations, then 0.9 KB for the share button and its toast to 49.9 KB (Oct 29, 2026) |
 
 ## Against x.com
 
-`sites/kitter/tests/bench/` is a second add-on that compares kitter with x.com's own app on Andrew's session,
-the only signed-in x.com. Its `run.sh` installs it beside kitter in a headless Zen of its own (`tests/zen.sh`):
-a fresh profile holding only a copy of his x.com cookies, so his browser is never touched. The add-on at once loads
-x.com/home five times as each (`?krusta=off` for x.com's app), alternating, in one tab, then runs the memory rounds
-below, and saves `kitter-bench-<time>.json` with the medians and every run. A content script measures each
+`sites/kitter/tests/bench/` is a second add-on that compares kitter with x.com's own app on Andrew's session, the
+only signed-in x.com. Its `run.sh` installs it beside kitter in a headless Zen of its own (`tests/zen.sh`): a
+fresh profile holding only a copy of his x.com cookies, so his browser is never touched. The add-on at once loads
+x.com/home five times as each (`?krusta=off` for x.com's app), alternating, in one tab, then runs the memory
+rounds below, and saves `kitter-bench-<time>.json` with the medians and every run. A content script measures each
 load the same way: the first post on screen, two seconds of rest, then 300 frames scrolling 80 px each (4,800
-px/s, as the budgets scroll).
-Medians of three runs in Andrew's own Zen on palanok, before the separate instance existed, Oct 27, 2026; runs 2
-and 3 after the prefetch moved from two screens to six:
+px/s, as the speed measurements scroll). Medians of three runs in Andrew's own Zen on palanok, before the separate
+instance existed, Oct 27, 2026; runs 2 and 3 after the prefetch moved from two screens to six:
 
 | Measure | kitter 1 | x.com 1 | kitter 2 | x.com 2 | kitter 3 | x.com 3 |
 |---|---|---|---|---|---|---|

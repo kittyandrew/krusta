@@ -1,10 +1,9 @@
 //! kitter, krusta's interface for X. krusta's content script empties x.com's page and calls `start`; requests go to
 //! x.com's own API from the page, so the browser's session cookies come along as they do for x.com's app.
 
-use kitter_api::{Media, MediaKind, Post, Profile, Request, Segment, Timeline, encode};
+use kitter_api::{Affiliate, Badge, Media, MediaKind, Post, Profile, Request, Segment, Timeline, User, encode};
 use leptos::prelude::*;
 use wasm_bindgen::{JsCast, prelude::*};
-use wasm_bindgen_futures::JsFuture;
 use web_sys::Response;
 
 #[wasm_bindgen]
@@ -134,14 +133,14 @@ fn ProfileHeader(profile: Profile) -> impl IntoView {
     let joined = format!("Joined {} {}", words.get(1).unwrap_or(&""), words.last().unwrap_or(&""));
     view! {
         <section class="profile">
-            // A background, so a banner X names but cannot serve leaves the grey box x.com shows, not a broken
-            // image. 1500x500 is the size x.com shows; not every banner has the others.
+            // A background, so a banner X names but cannot serve leaves an empty box, not a broken image. 1500x500 is
+            // the size x.com shows; not every banner has the others.
             <div class="banner" style:background-image=banner.map(|b| format!("url({b}/1500x500)"))></div>
             <img class="avatar big" src=avatar alt="" />
-            <h1>{user.name}</h1>
+            <h1><span data-badge=user.badge.map(badge)>{user.name}</span>{user.affiliate.map(affiliate)}</h1>
             <p class="muted">{format!("@{}", user.handle)}</p>
             <Text segments=bio />
-            <p class="muted meta">
+            <p class="meta">
                 {(!location.is_empty()).then(|| view! { <span>{location}</span> })}
                 {website.map(|(shown, href)| view! { <a href=href target="_blank" rel="noopener noreferrer">{shown}</a> })}
                 <span>{joined}</span>
@@ -149,49 +148,42 @@ fn ProfileHeader(profile: Profile) -> impl IntoView {
             <p class="follows">
                 <span><b>{compact(following)}</b>" Following"</span>
                 <span><b>{compact(followers)}</b>" Followers"</span>
-                <span class="muted">{format!("{} posts", compact(posts))}</span>
+                <span>{format!("{} posts", compact(posts))}</span>
             </p>
         </section>
     }
 }
 
-/// A timeline's posts from its top, oldest pages appended as the reader nears the end.
+/// Where a timeline's paging stands: the cursor of the page to load next, `None` for its first, or its end.
+#[derive(Clone, PartialEq)]
+enum Next {
+    Page(Option<String>),
+    End,
+}
+
+/// A timeline's posts from its top, later pages appended as the reader nears the end.
 #[component]
 fn Posts(which: Timeline) -> impl IntoView {
     window().scroll_to_with_x_and_y(0.0, 0.0); // a tab switch starts the new timeline at its top
     let posts = RwSignal::new(Vec::<Post>::new());
-    let next = RwSignal::new(None::<String>);
+    let next = RwSignal::new(Next::Page(None));
     let loading = RwSignal::new(false);
     let error = RwSignal::new(None::<String>);
     let viewer = Viewer(RwSignal::new(None));
     provide_context(viewer);
+    let toast = RwSignal::new(""); // the toast's words: what a share button just did, for 3 s
     let which = StoredValue::new(which); // so `load` stays Copy, shared by the scroll listener and the button
     let load = move || {
-        if loading.get_untracked() {
-            return;
-        }
+        let (Next::Page(cursor), false) = (next.get_untracked(), loading.get_untracked()) else { return };
         loading.set(true);
-        let cursor = next.get_untracked();
-        let first = cursor.is_none();
-        // A copy for the task: a tab switch while X answers drops `which`, and reading a dropped value panics (setting one
-        // does nothing).
-        let which = which.get_value();
-        let request = kitter_api::timeline(&which, cursor.as_deref());
+        let request = which.with_value(|w| kitter_api::timeline(w, cursor.as_deref()));
         leptos::task::spawn_local(async move {
             match fetch(request, kitter_api::parse_timeline).await {
-                // A post seen on an earlier page is left out: For You repeats some, and each needs its own key.
                 Ok(page) => {
-                    if let Some(p) = page.posts.iter().find(|p| matches!(&which, Timeline::Post(id) if *id == p.id)) {
-                        title(&format!("{} on X: \"{}\" / X", p.author.name, plain(&p.text)));
-                    }
-                    // X sends a bottom cursor on the empty pages past a timeline's end too: an empty page ends it.
-                    next.set(page.next.filter(|_| !page.posts.is_empty()));
+                    next.set(page.next.map_or(Next::End, |c| Next::Page(Some(c))));
+                    // A post an earlier page held is left out: For You repeats some.
                     posts.update(|p| p.extend(page.posts.into_iter().filter(|n| !p.iter().any(|o| o.id == n.id)).collect::<Vec<_>>()));
                     error.set(None);
-                    // A post's page opens on the post, the thread it answers above it, once that is drawn.
-                    if first {
-                        request_animation_frame(|| _ = document().query_selector(".post.focal").map(|e| e.map(|e| e.scroll_into_view())));
-                    }
                 }
                 Err(e) => error.set(Some(e)),
             }
@@ -206,7 +198,7 @@ fn Posts(which: Timeline) -> impl IntoView {
         let (Ok(y), Some(h)) = (w.scroll_y(), w.inner_height().ok().and_then(|h| h.as_f64())) else { return };
         let total = document().document_element().map_or(0, |e| e.scroll_height());
         // Not after an error: each scroll event would ask again, against a rate limit too; the button retries.
-        if f64::from(total) - y - h < 6.0 * h && next.with_untracked(Option::is_some) && error.with_untracked(Option::is_none) {
+        if error.with_untracked(Option::is_none) && f64::from(total) - y - h < 6.0 * h {
             load();
         }
     });
@@ -217,19 +209,28 @@ fn Posts(which: Timeline) -> impl IntoView {
             {posts.with_untracked(|p| {
                 let post = p[i].clone();
                 let focal = which.with_value(|w| matches!(w, Timeline::Post(id) if *id == post.id));
+                if focal {
+                    title(&format!("{} on X: \"{}\" / X", post.author.name, plain(&post.text)));
+                    // A post's page opens on the post, the thread it answers above it, once that is drawn.
+                    request_animation_frame(|| _ = document().query_selector(".post.focal").map(|e| e.map(|e| e.scroll_into_view())));
+                }
                 // The thread line runs on to the next post when it answers this one; from a post's page's own post, only to
                 // its author's next post, not into someone else's reply.
                 let threaded = p.get(i + 1).is_some_and(|n| {
                     n.reply_to.as_ref() == Some(&post.id) && (!focal || n.author.handle == post.author.handle)
                 });
-                view! { <PostView focal=focal threaded=threaded post=post /> }
+                view! { <PostView focal=focal threaded=threaded toast=toast post=post /> }
             })}
         </For>
         {move || error.get().map(|e| view! { <p class="error">{e}</p> })}
-        <button class="more" disabled=move || loading.get() on:click=move |_| load()>
-            {move || if loading.get() { "Loading…" } else { "Load more" }}
-        </button>
+        {move || next.with(|n| *n != Next::End).then(|| view! {
+            <button class="more" disabled=move || loading.get() on:click=move |_| load()>
+                {move || if loading.get() { "Loading…" } else { "Load more" }}
+            </button>
+        })}
         <ViewerOverlay viewer=viewer />
+        // Kept in the page, empty: screen readers read a status region's new words, but not always a new region's.
+        <p class="toast" role="status">{move || toast.get()}</p>
     }
 }
 
@@ -263,49 +264,107 @@ fn ViewerOverlay(viewer: Viewer) -> impl IntoView {
     }
 }
 
-/// One post. `focal` marks the post a post's page is about, `threaded` one the next post answers. A click anywhere in
-/// it opens its page (`open`).
+/// One post. `focal` marks the post a post's page is about, `threaded` one the next post answers, and `toast` is the
+/// page's, where its share buttons say what they did. A click anywhere in it opens its page (`open`).
 #[component]
-fn PostView(post: Post, focal: bool, threaded: bool) -> impl IntoView {
+fn PostView(post: Post, focal: bool, threaded: bool, toast: RwSignal<&'static str>) -> impl IntoView {
     view! {
         <article class="post" class:focal=focal class:threaded=threaded data-page=page(&post)>
             {post.pinned.then(|| view! { <p class="repost pinned">"📌 Pinned"</p> })}
-            {post.reposted_by.as_ref().map(|u| view! { <p class="repost">{format!("↻ {} reposted", u.name)}</p> })}
+            {post.repost.as_ref().map(|r| view! {
+                <p class="repost">"↻ "{author(&r.by, true)}" reposted · "{short_date(&r.created_at)}</p>
+            })}
             <a class="author" href=format!("/{}", post.author.handle)>
                 <img class="avatar" src=post.author.avatar.clone() alt="" loading="lazy" decoding="async" />
             </a>
             {content(&post, false)}
-            {post.quote.as_deref().map(|q| view! { <div class="quote" data-page=page(q)>{content(q, true)}{counts(q)}</div> })}
-            {counts(&post)}
+            {post.quote.as_deref().map(|q| view! { <div class="quote" data-page=page(q)>{content(q, true)}{counts(q, toast)}</div> })}
+            {counts(&post, toast)}
         </article>
     }
 }
 
-fn counts(post: &Post) -> impl IntoView + use<> {
+/// A post's counts, then a button that copies its link on x.com, as the "Copy link" of X's share menu does.
+fn counts(post: &Post, toast: RwSignal<&'static str>) -> impl IntoView + use<> {
+    let link = format!("https://x.com{}", page(post));
+    let share = move |_| {
+        // Asked in the click itself: Firefox lets a page write the clipboard only just after a click or key press.
+        let copied = window().navigator().clipboard().write_text(&link);
+        leptos::task::spawn_local(async move {
+            toast.set(if copied.await.is_ok() { "Copied to clipboard" } else { "Failed to copy to clipboard" });
+            set_timeout(move || toast.set(""), std::time::Duration::from_secs(3));
+        });
+    };
     view! {
         <p class="counts">
             <span class="replies">{format!("💬 {}", compact(post.replies))}</span>
             <span class="reposts">{format!("↻ {}", compact(post.reposts))}</span>
             <span class="likes">{format!("♥ {}", compact(post.likes))}</span>
             {post.views.map(|v| format!("👁 {}", compact(v)))} // no span: views take the row's own colour
+            <button class="share" title="Copy link" aria-label="Copy link" on:click=share>"🔗"</button>
         </p>
     }
 }
 
-/// A post's byline, text and media. The author's name opens their profile in kitter, the date the post's own page. A
-/// quoted post has no avatar column, so its byline starts with a small avatar, as on X.
+/// A post's byline, words and media. The date opens the post's own page. A quoted post has no avatar column, so its
+/// byline starts with a small avatar, as on X.
 fn content(post: &Post, quoted: bool) -> impl IntoView + use<> {
-    let user = &post.author;
     view! {
-        <p class="byline">
-            {quoted.then(|| view! { <img class="avatar small" src=user.avatar.clone() alt="" loading="lazy" decoding="async" /> })}
-            <a class="name" href=format!("/{}", user.handle)>{user.name.clone()}</a>
-            {format!(" @{} · ", user.handle)}
-            <a class="when" href=page(post)>{short_date(&post.created_at)}</a>
-        </p>
-        <Text segments=post.text.clone() />
+        <p class="byline">{author(&post.author, quoted)}" · "<a class="when" href=page(post)>{short_date(&post.created_at)}</a></p>
+        {words(post)}
         <MediaGrid media=post.media.clone() />
     }
+}
+
+/// An account as a line names it: its name, which opens its profile in kitter, with its badge and affiliation as on X,
+/// then its handle. `avatar` puts its picture first, inside the same link, where the line has no avatar column.
+fn author(user: &User, avatar: bool) -> impl IntoView + use<> {
+    let picture = avatar.then(|| view! { <img class="avatar small" src=user.avatar.clone() alt="" loading="lazy" decoding="async" /> });
+    view! {
+        <a class="name" href=format!("/{}", user.handle) data-badge=user.badge.map(badge)>{picture}{user.name.clone()}</a>
+        {user.affiliate.clone().map(affiliate)}
+        {format!(" @{}", user.handle)}
+    }
+}
+
+/// A badge's colour, which style.css draws after the name.
+fn badge(badge: Badge) -> &'static str {
+    match badge {
+        Badge::Blue => "blue",
+        Badge::Gold => "gold",
+        Badge::Grey => "grey",
+    }
+}
+
+/// The organisation an account belongs to, as X shows it: the organisation's picture, opening its profile.
+fn affiliate(a: Affiliate) -> impl IntoView {
+    view! { <a class="affiliate" href=format!("/{}", a.handle) title=a.name><img src=a.avatar alt="" loading="lazy" decoding="async" /></a> }
+}
+
+/// A post's words: X's translation into the reader's language when X sent one, shown first as on x.com, with a button
+/// back to the original and again to the translation.
+fn words(post: &Post) -> impl IntoView + use<> {
+    let original = post.text.clone();
+    let Some(translation) = post.translation.clone() else { return view! { <Text segments=original /> }.into_any() };
+    let translated = RwSignal::new(true);
+    view! {
+        <p class="translated">
+            {format!("Translated from {} · ", language(&translation.from))}
+            <button on:click=move |_| translated.update(|t| *t = !*t)>
+                {move || if translated.get() { "Show original" } else { "Show translation" }}
+            </button>
+        </p>
+        {move || view! { <Text segments=if translated.get() { translation.text.clone() } else { original.clone() } /> }}
+    }
+    .into_any()
+}
+
+/// A language's English name, "German" for "de", as kitter's own words are English.
+fn language(tag: &str) -> String {
+    let options = js_sys::Object::new();
+    _ = js_sys::Reflect::set(&options, &"type".into(), &"language".into());
+    let names = js_sys::Intl::DisplayNames::new(&js_sys::Array::of1(&"en".into()), &options);
+    names.of(tag).map_or_else(|| tag.to_owned(), String::from)
 }
 
 /// The tab's title. kitter names its pages as x.com does, so its tabs read as x.com's.
@@ -367,7 +426,7 @@ fn MediaGrid(media: Vec<Media>) -> impl IntoView {
     let viewer = expect_context::<Viewer>();
     let photos: Vec<String> = media.iter().filter(|m| m.kind == MediaKind::Photo).map(|m| m.url.clone()).collect();
     let count = media.len().min(4);
-    let single_ratio = media.first().filter(|m| m.width > 0 && m.height > 0).map(|m| format!("{} / {}", m.width, m.height));
+    let single_ratio = media.first().and_then(|m| m.size).map(|(width, height)| format!("{width} / {height}"));
     (!media.is_empty()).then(|| {
         view! {
             <div class=format!("media n{count}") style:aspect-ratio=if count == 1 { single_ratio } else { None }>
@@ -390,9 +449,9 @@ fn MediaGrid(media: Vec<Media>) -> impl IntoView {
 
 #[wasm_bindgen]
 extern "C" {
-    /// content.js's fetch as the x.com page itself, so the request is same-origin and carries the session: of a
-    /// path on x.com, which it refuses outside X's API. A GET when `body` is undefined. `catch`: a throw becomes an
-    /// error the page shows; uncaught, it ended the task and left "Loading…" up.
+    /// content.js's fetch as the x.com page itself, so the request is same-origin and carries the session; it refuses a
+    /// path outside X's API. A GET when `body` is undefined. `catch` turns a throw into an error the page shows, where
+    /// uncaught it would end the task and leave "Loading…" up.
     #[wasm_bindgen(js_name = krustaFetch, catch)]
     fn krusta_fetch(path: &str, body: Option<String>, headers: &str) -> Result<js_sys::Promise, JsValue>;
 }
@@ -403,14 +462,16 @@ async fn fetch<T>(request: Request, parse: fn(&str) -> Result<T, kitter_api::Err
 }
 
 /// One call to x.com's API with the headers x.com's app sends, answered as text. The session is in the
-/// cookies, which the browser adds; `ct0` is also the CSRF token X expects back as a header.
+/// cookies, which the browser adds; `ct0` is also the CSRF token X expects back as a header. `lang` is the language
+/// the account set for x.com, which X translates posts into.
 async fn send(request: Request) -> Result<String, String> {
     let csrf = cookie("ct0").ok_or("not signed in to x.com: no ct0 cookie")?;
+    let language = cookie("lang").unwrap_or_else(|| "en".into()); // x.com's own default
     let headers = serde_json::json!({"authorization": kitter_api::BEARER, "content-type": "application/json", "x-csrf-token": csrf,
-        "x-twitter-auth-type": "OAuth2Session", "x-twitter-active-user": "yes", "x-twitter-client-language": "en"});
+        "x-twitter-auth-type": "OAuth2Session", "x-twitter-active-user": "yes", "x-twitter-client-language": language});
     let sent = krusta_fetch(&request.path, request.body, &headers.to_string()).map_err(js_error)?;
-    let response: Response = JsFuture::from(sent).await.map_err(js_error)?.unchecked_into();
-    let text = JsFuture::from(response.text().map_err(js_error)?).await.map_err(js_error)?.as_string().unwrap_or_default();
+    let response: Response = sent.await.map_err(js_error)?.unchecked_into();
+    let text = response.text().map_err(js_error)?.await.map_err(js_error)?.as_string().unwrap_or_default();
     if !response.ok() {
         return Err(format!("x.com answered HTTP {}: {}", response.status(), text.chars().take(300).collect::<String>()));
     }

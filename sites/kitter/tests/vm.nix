@@ -68,7 +68,7 @@
     off-forgotten = ext "content.js" "krusta-off" ''.get("krusta") !== "off"'' ''.get("krusta") !== "of"'';
     csrf-renamed = web "feed" ''"x-csrf-token": csrf'' ''"x-csrftoken": csrf'';
     counts-swapped = web "feed" ''format!("↻ {}", compact(post.reposts))'' ''format!("↻ {}", compact(post.likes))'';
-    cursor-dropped = web "scroll" "let cursor = next.get_untracked();" "let cursor = None::<String>;";
+    cursor-dropped = web "scroll" "cursor.as_deref()" "None";
     three-unplaced = ext "sites/kitter/style.css" "layouts" "grid-area: a;" "";
     grid-capped = web "layouts" "media.len().min(4)" "media.len().min(3)";
     escape-ignored = web "viewer" ''"Escape" => viewer.0.set(None),'' ''"Esc" => viewer.0.set(None),'';
@@ -104,8 +104,8 @@
     title-unset = web "takeover" "fn title(text: &str) { document().set_title(text); }" "fn title(_: &str) {}";
     icon-missing = ext "content.js" "takeover" ''icon.href = "/favicon.ico"'' ''icon.href = "/favicon.png"'';
     profile-title-swapped = web "profile" "p.user.name, p.user.handle" "p.user.handle, p.user.name";
-    post-title-id = web "post" "plain(&p.text)" "p.id";
-    quote-uncounted = web "post" "{content(q, true)}{counts(q)}" "{content(q, true)}";
+    post-title-id = web "post" "plain(&post.text)" "post.id";
+    quote-uncounted = web "post" "{content(q, true)}{counts(q, toast)}" "{content(q, true)}";
     bar-tabless = web "post" "{tab_bar(tabs, tab)}" "";
     # A home tab on another page then opens For You, whichever was clicked.
     tab-forgotten = web "post" ''&format!("/home#{}", tab_key(&which))'' ''"/home"'';
@@ -113,10 +113,40 @@
     thread-from-focal = web "thread" "(!focal || n.author.handle == post.author.handle)" "!focal";
     thread-undrawn = ext "sites/kitter/style.css" "thread" ''content: "";'' "";
     detail-unasked = api "post" ''"focalTweetId": id'' ''"tweetId": id'';
+    # The quoted post's avatar outside its name's link: a click on it then opens the quoted post, not its author.
+    quote-avatar-unlinked = web "post" ">{picture}{user.name.clone()}</a>" ">{user.name.clone()}</a>{picture}";
+    repost-faceless = web "repost" "{author(&r.by, true)}" "{author(&r.by, false)}";
+    repost-time-original = api "repost" "Repost { by: author, created_at }" ''Repost { by: author, created_at: original["legacy"]["created_at"].as_str().unwrap_or_default().into() }'';
+    gold-as-blue = api "badges" ''Some("Business") => Some(Badge::Gold),'' ''Some("Business") => Some(Badge::Blue),'';
+    affiliates-dropped = api "badges" ''affiliate: affiliate(&result["affiliates_highlighted_label"]["label"]),'' "affiliate: None,";
+    badge-undrawn = ext "sites/kitter/style.css" "badges" ''[data-badge="gold"]::after {'' ''[data-badge="golden"]::after {'';
+    language-fixed = web "badges" ''cookie("lang").unwrap_or_else(|| "en".into())'' ''String::from("en")'';
+    bio-unmentioned = api "profile" ''&bio["entities"]["description"], None, true)'' ''&bio["entities"]["description"], None, false)'';
+    mention-in-address = api "profile" ''!(word(chars[i - 1]) || "!#$%&*@".contains(chars[i - 1]))'' "true";
+    translation-dropped = api "translation" ''translation: translation(&tweet["grok_translated_post_with_availability"]),'' "translation: None,";
+    translation-unlinked = api "translation" ''split(data["translation"].as_str()?, &data["entities"], None, false)'' ''split(data["translation"].as_str()?, &Value::Null, None, false)'';
+    original-first = web "translation" "let translated = RwSignal::new(true);" "let translated = RwSignal::new(false);";
+    translation-stuck = web "translation" "translated.update(|t| *t = !*t)" "translated.update(|t| *t = true)";
+    # The bug Andrew met: a post with no replies still offered "Load more", and the end of any timeline too.
+    more-past-end = web "load-more" "next.with(|n| *n != Next::End)" "next.with(|_| true)";
+    discover-more-paged = api "load-more" "!past_replies && " "";
+    # A share button copying anything but the post's own address on x.com: the address alone, the page's, one by the
+    # author's name, the reposter's, or the outer post's from a quote.
+    share-relative = web "share" ''format!("https://x.com{}", page(post))'' "page(post)";
+    share-page-address = web "share" ''format!("https://x.com{}", page(post))'' "window().location().href().unwrap_or_default()";
+    share-by-name = web "share" ''format!("/{}/status/{}", post.author.handle, post.id)'' ''format!("/{}/status/{}", post.author.name, post.id)'';
+    share-reposter = api "share" "return Some(Post { repost: Some(" "return Some(Post { author: author.clone(), repost: Some(";
+    share-quote-outer = web "share" "{counts(q, toast)}" "{counts(&post, toast)}";
+    share-untabbable = web "share" ''<button class="share"'' ''<button class="share" tabindex="-1"'';
+    # The page's click listener taking the button for the post around it: the click copies, then opens the post.
+    share-opens-post = web "share" ''t.closest("a, button, video, .media img")'' ''t.closest("a, video, .media img")'';
+    share-unconfirmed = web "share" ''"Copied to clipboard"'' ''""'';
+    toast-stays = web "share" "Duration::from_secs(3)" "Duration::from_secs(30)";
+    toast-unannounced = web "share" ''<p class="toast" role="status">'' ''<p class="toast">'';
     # The bug that happened live: a throw ended the request's task, and the button said it was loading for good.
     error-throws = web "api-error" "Err(e) => error.set(Some(e))," "Err(e) => wasm_bindgen::throw_str(&e),";
-    retries-on-scroll = web "rate-limit" " && error.with_untracked(Option::is_none)" "";
-    past-end-followed = web "timeline-end" "next.set(page.next.filter(|_| !page.posts.is_empty()));" "next.set(page.next);";
+    retries-on-scroll = web "rate-limit" "error.with_untracked(Option::is_none) && " "";
+    past-end-followed = api "timeline-end" " && !page.posts.is_empty()" "";
     update-leaves-tabs = ext "background.js" "update" "discarded: false })) browser.tabs.reload(tab.id)" "discarded: false })) void tab";
     # Tabs kept in the event page, which Firefox stops when idle: a sign-in tab's next script is then cancelled.
     tab-remembered = {
@@ -186,7 +216,7 @@
   6);
 in
   # .plants fails when any part does; a part's evidence is `.plants.parts.p0.run` and so on. `.fixture` is for the
-  # speed budgets (budgets/run.sh), which take its recording and certificate.
+  # speed measurements (budgets/run.sh), which take its recording and certificate.
   run "krusta-vm-kitter" {}
   // {
     plants = pkgs.linkFarmFromDrvs "krusta-vm-kitter-plants" (lib.attrValues parts) // {inherit parts;};

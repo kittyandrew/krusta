@@ -1,6 +1,6 @@
 {
   "manifest_version": 3,
-  "name": "kitter budget probe",
+  "name": "kitter speed probe",
   "version": "0.1.0",
   "description": "Marks when kitter's first post is on the page, for sites/kitter/tests/budgets/budgets.py.",
   "browser_specific_settings": { "gecko": { "id": "probe@kitter.test" } },

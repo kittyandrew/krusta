@@ -9,14 +9,13 @@ rust-version = "1.90"
 version      = "0.1.0"
 
 [workspace.dependencies]
-js-sys               = "0.3"
-kitter-api           = { path = "sites/kitter/api" }
-leptos               = { version = "0.8", features = [ "csr" ] }
-serde_json           = "1"
-thiserror            = "2"
-wasm-bindgen         = "=0.2.129"                                # must equal nixpkgs' wasm-bindgen-cli, which writes the JS glue
-wasm-bindgen-futures = "0.4"
-web-sys              = "0.3"
+js-sys       = "0.3"
+kitter-api   = { path = "sites/kitter/api" }
+leptos       = { version = "0.8", features = [ "csr" ] }
+serde_json   = "1"
+thiserror    = "2"
+wasm-bindgen = "=0.2.129"                                # must equal nixpkgs' wasm-bindgen-cli, which writes the JS glue
+web-sys      = "0.3"
 
 [workspace.lints.rust]
 unsafe_code = "forbid"
@@ -32,8 +31,8 @@ codegen-units = 1
 lto           = "fat"
 opt-level     = "z"   # the client is the only binary: size is load time
 
-# Builds for the test suites, plants included: release's optimisation without its whole-crate passes, so a
-# one-file change rebuilds in seconds. `release` stays the shipped build, and the one the budgets measure.
+# Builds for the test suites, plants included: release's optimisation without its whole-crate passes, so a one-file
+# change rebuilds in seconds. `release` stays the shipped build, and the one the speed measurements take.
 [profile.fast]
 codegen-units = 256
 incremental   = true

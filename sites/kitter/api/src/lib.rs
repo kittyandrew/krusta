@@ -9,7 +9,7 @@ use serde_json::{Value, json};
 /// The public bearer token every x.com page sends with its own API calls; the session is in the cookies.
 pub const BEARER: &str = "Bearer AAAAAAAAAAAAAAAAAAAAANRILgAAAAAAnNwIzUejRCOuH5E6I8xnZz4puTs%3D1Zv7ttfk8LF81IUq16cHjhLTvJu4FA33AGWWjCpTnA";
 
-/// Each call's query id, feature switches and field toggles, as today's x.com bundle sends them
+/// Each call's query id, feature switches and field toggles, as x.com's bundle sent them
 /// (fa0311/TwitterInternalAPIDocument, Oct 27, 2026). A missing switch fails the call with error 336. The timeline
 /// calls share the top-level switches and toggles; a call with its own names them.
 static GRAPHQL: LazyLock<Value> = LazyLock::new(|| serde_json::from_str(include_str!("graphql.json")).expect("graphql.json is valid JSON"));
@@ -22,7 +22,7 @@ pub struct Request {
     pub body: Option<String>,
 }
 
-/// A list of posts kitter shows, newest first.
+/// A list of posts kitter shows, in the order X sends them.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Timeline {
     ForYou,
@@ -37,7 +37,7 @@ pub enum Timeline {
     Replies(String),
     /// A user's id: their posts with photos or videos, the profile's Media tab.
     Media(String),
-    /// A post's id: the thread it answers, the post, then its replies, in X's order rather than newest first.
+    /// A post's id: the thread it answers, the post, then its replies.
     Post(String),
 }
 
@@ -72,7 +72,6 @@ pub fn timeline(which: &Timeline, cursor: Option<&str>) -> Request {
     call(operation, &variables)
 }
 
-/// A user's profile by handle.
 #[must_use]
 pub fn user_by_handle(handle: &str) -> Request { call("UserByScreenName", &json!({"screen_name": handle})) }
 
@@ -126,6 +125,25 @@ pub struct User {
     pub name: String,
     pub handle: String,
     pub avatar: String,
+    pub badge: Option<Badge>,
+    pub affiliate: Option<Affiliate>,
+}
+
+/// The check X draws after a name: blue for X Premium, gold for an organisation, grey for a government or one of its
+/// officials.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Badge {
+    Blue,
+    Gold,
+    Grey,
+}
+
+/// The organisation an account belongs to, which X shows after its name as the organisation's picture.
+#[derive(Debug, Clone, PartialEq)]
+pub struct Affiliate {
+    pub name: String,
+    pub handle: String,
+    pub avatar: String,
 }
 
 /// A video's or GIF's MP4: the best one at or under `VIDEO_BITRATE`, else the smallest. One X sends with no MP4
@@ -142,11 +160,11 @@ pub struct Media {
     pub kind: MediaKind,
     /// The image, or a video's still frame.
     pub url: String,
-    pub width: u32,
-    pub height: u32,
+    /// Its width and height in pixels, when X sent both.
+    pub size: Option<(u32, u32)>,
 }
 
-/// Videos above this are not played inline: 832 kbit/s is X's 480p rung, which a weak laptop decodes smoothly.
+/// X's 480p rung, 832 kbit/s, is the best MP4 under this, and a weak laptop decodes it smoothly.
 const VIDEO_BITRATE: u64 = 1_000_000;
 
 /// A run of a post's text: plain, or one of the entities X marks in it.
@@ -167,10 +185,12 @@ pub struct Post {
     pub id: String,
     pub author: User,
     pub text: Vec<Segment>,
+    /// X's translation of `text` into the reader's language, sent with the post when X has one ready.
+    pub translation: Option<Translation>,
     pub created_at: String,
     pub media: Vec<Media>,
-    /// Who reposted it into the timeline; the post itself is the original.
-    pub reposted_by: Option<User>,
+    /// Who reposted it into the timeline, and when; the post itself is the original.
+    pub repost: Option<Repost>,
     /// Pinned to the top of its author's profile, shown there first.
     pub pinned: bool,
     pub quote: Option<Box<Post>>,
@@ -180,6 +200,20 @@ pub struct Post {
     pub reposts: u64,
     pub likes: u64,
     pub views: Option<u64>,
+}
+
+/// A repost's own author and time, apart from the original's.
+#[derive(Debug, Clone, PartialEq)]
+pub struct Repost {
+    pub by: User,
+    pub created_at: String,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct Translation {
+    /// The language translated from, a tag such as "de" that `Intl.DisplayNames` takes.
+    pub from: String,
+    pub text: Vec<Segment>,
 }
 
 #[derive(Debug, Default, PartialEq)]
@@ -194,15 +228,15 @@ pub struct Page {
 pub fn parse_timeline(text: &str) -> Result<Page, Error> {
     let data = answer(text)?;
     let instructions = find_key(&data, "instructions").and_then(Value::as_array).ok_or(Error::NoTimeline)?;
+    // A post page's "Discover more": posts from across X, answering nothing there, added once its replies run out.
+    let related = |e: &Value| e["entryId"].as_str().is_some_and(|id| id.starts_with("tweetdetailrelatedtweets-"));
+    let past_replies = instructions.iter().any(|i| items(&i["entries"]).iter().any(related));
     let mut page = Page::default();
     for instruction in instructions {
-        // A Media tab's later pages: more posts for the grid its first page opened as a module.
-        page.posts.extend(module(&instruction["moduleItems"]));
+        page.posts.extend(module(&instruction["moduleItems"])); // a Media tab's later pages, added to the module its first page opened
         let pinned = instruction["type"] == "TimelinePinEntry"; // a profile's pinned post, before its other entries
-        // TimelineAddEntries' entries, or the one entry of a TimelineReplaceEntry or TimelinePinEntry. Not a post page's
-        // "Discover more", posts from across X that answer nothing there.
-        let shown = |e: &&Value| !e["entryId"].as_str().is_some_and(|id| id.starts_with("tweetdetailrelatedtweets-"));
-        for content in items(&instruction["entries"]).iter().chain([&instruction["entry"]]).filter(shown).map(|e| &e["content"]) {
+        // TimelineAddEntries' entries, or the one entry of a TimelineReplaceEntry or TimelinePinEntry.
+        for content in items(&instruction["entries"]).iter().chain([&instruction["entry"]]).filter(|&e| !related(e)).map(|e| &e["content"]) {
             page.posts.extend(item_post(&content["itemContent"]).map(|p| Post { pinned, ..p }));
             page.posts.extend(module(&content["items"])); // a conversation: the thread's posts in order
             if content["cursorType"] == "Bottom" {
@@ -210,7 +244,8 @@ pub fn parse_timeline(text: &str) -> Result<Page, Error> {
             }
         }
     }
-    Ok(page)
+    // X sends a bottom cursor past the end too: on a timeline's empty pages, and after a post page's "Discover more".
+    Ok(Page { next: page.next.filter(|_| !past_replies && !page.posts.is_empty()), ..page })
 }
 
 /// An answer's `data`, or X's error when it sent one instead.
@@ -255,7 +290,7 @@ pub fn parse_profile(text: &str) -> Result<Profile, Error> {
     Ok(Profile {
         id: id(&result["rest_id"]).ok_or(Error::NoUser)?,
         user: user(result).ok_or(Error::NoUser)?,
-        bio: split(bio["description"].as_str().unwrap_or_default(), &bio["entities"]["description"], None),
+        bio: split(bio["description"].as_str().unwrap_or_default(), &bio["entities"]["description"], None, true),
         location: new_or_old(&result["location"]["location"], &legacy["location"]).as_str().unwrap_or_default().to_owned(),
         website: web(&website["expanded_url"]).map(|href| (website["display_url"].as_str().unwrap_or(href).to_owned(), href.to_owned())),
         joined: new_or_old(&result["core"]["created_at"], &legacy["created_at"]).as_str().unwrap_or_default().to_owned(),
@@ -329,20 +364,20 @@ fn post(result: &Value) -> Option<Post> {
     };
     let legacy = &tweet["legacy"];
     let author = user(&tweet["core"]["user_results"]["result"])?;
+    let created_at = legacy["created_at"].as_str().unwrap_or_default().to_owned();
     let original = &legacy["retweeted_status_result"]["result"];
     if !original.is_null() {
-        let mut inner = post(original)?;
-        inner.reposted_by = Some(author);
-        return Some(inner);
+        return Some(Post { repost: Some(Repost { by: author, created_at }), ..post(original)? });
     }
     let count = |key: &str| legacy[key].as_u64().unwrap_or(0);
     Some(Post {
         id: id(&tweet["rest_id"])?,
         author,
         text: text(tweet),
-        created_at: legacy["created_at"].as_str().unwrap_or_default().to_owned(),
+        translation: translation(&tweet["grok_translated_post_with_availability"]),
+        created_at,
         media: media(legacy),
-        reposted_by: None,
+        repost: None,
         pinned: false,
         quote: post(&tweet["quoted_status_result"]["result"]).map(Box::new),
         reply_to: id(&legacy["in_reply_to_status_id_str"]),
@@ -353,34 +388,71 @@ fn post(result: &Value) -> Option<Post> {
     })
 }
 
-/// X moved name and handle from `legacy` to `core`, and the picture to `avatar`, in 2025; older answers keep `legacy`.
+/// X moved name and handle from `legacy` to `core`, the picture to `avatar` and the badge's kind to `verification`, in
+/// 2025; older answers keep `legacy`.
 fn user(result: &Value) -> Option<User> {
     let pick = |new: &Value, old: &Value| new.as_str().or(old.as_str()).map(str::to_owned);
+    let badge = match pick(&result["verification"]["verified_type"], &result["legacy"]["verified_type"]).as_deref() {
+        Some("Business") => Some(Badge::Gold),
+        Some("Government") => Some(Badge::Grey),
+        _ => (result["is_blue_verified"] == true).then_some(Badge::Blue),
+    };
     Some(User {
         name: pick(&result["core"]["name"], &result["legacy"]["name"])?,
         handle: pick(&result["core"]["screen_name"], &result["legacy"]["screen_name"]).filter(|h| is_handle(h))?,
         avatar: pick(&result["avatar"]["image_url"], &result["legacy"]["profile_image_url_https"]).unwrap_or_default(),
+        badge,
+        affiliate: affiliate(&result["affiliates_highlighted_label"]["label"]),
     })
 }
 
-/// The post's own words: a long post's full text, else `full_text` within its display range, which leaves out
-/// the trailing media link.
-fn text(tweet: &Value) -> Vec<Segment> {
-    let note = &tweet["note_tweet"]["note_tweet_results"]["result"];
-    match note["text"].as_str() {
-        Some(text) => split(text, &note["entity_set"], None),
-        None => split(
-            tweet["legacy"]["full_text"].as_str().unwrap_or_default(),
-            &tweet["legacy"]["entities"],
-            Some(&tweet["legacy"]["display_text_range"]),
-        ),
+/// An account's affiliation: the organisation's name, its picture, and its profile, which X links as
+/// `https://twitter.com/<handle>`. Left off when any part fails its check.
+fn affiliate(label: &Value) -> Option<Affiliate> {
+    let link = label["url"]["url"].as_str()?;
+    let handle = ["https://twitter.com/", "https://x.com/"].iter().find_map(|site| link.strip_prefix(site)).filter(|h| is_handle(h))?;
+    Some(Affiliate {
+        name: label["description"].as_str()?.to_owned(),
+        handle: handle.to_owned(),
+        avatar: web(&label["badge"]["url"])?.to_owned(),
+    })
+}
+
+/// X's ready translation of a post (`grok_translated_post_with_availability`), when it has one. X sends the translation's
+/// own entities, counted in the translated text.
+fn translation(found: &Value) -> Option<Translation> {
+    if found["is_available"] != true {
+        return None;
     }
+    let data = &found["data"];
+    let from = data["source_language"].as_str().filter(|tag| is_language(tag))?.to_owned();
+    Some(Translation { from, text: split(data["translation"].as_str()?, &data["entities"], None, false) })
+}
+
+/// A language tag in a shape `Intl.DisplayNames` takes, as it throws on others: a language, then a region or a script
+/// ("de", "pt-BR", "zh-Hant").
+fn is_language(tag: &str) -> bool {
+    let (language, rest) = tag.split_once('-').map_or((tag, None), |(l, r)| (l, Some(r)));
+    let letters = |s: &str, lengths: &[usize]| lengths.contains(&s.len()) && s.bytes().all(|b| b.is_ascii_alphabetic());
+    letters(language, &[2, 3]) && rest.is_none_or(|r| letters(r, &[2, 4]))
+}
+
+/// The post's own words: a long post's full text, else `full_text` within its display range, which leaves out
+/// the trailing media link. Only `full_text` comes HTML-encoded, its entities counted in the encoded text, so its runs
+/// are decoded after the split; a long post's text and a bio come as written.
+fn text(tweet: &Value) -> Vec<Segment> {
+    let (note, legacy) = (&tweet["note_tweet"]["note_tweet_results"]["result"], &tweet["legacy"]);
+    let Some(text) = note["text"].as_str() else {
+        let full = split(legacy["full_text"].as_str().unwrap_or_default(), &legacy["entities"], Some(&legacy["display_text_range"]), false);
+        return full.into_iter().map(|s| if let Segment::Text(t) = s { Segment::Text(decode(&t)) } else { s }).collect();
+    };
+    split(text, &note["entity_set"], None, false)
 }
 
 /// `raw` split at the `entities` X marks in it, within `range` when given: a post's text or a profile's bio.
-/// Entity indices count characters of the text as X sends it, HTML entities still encoded, so each run is
-/// decoded only after the split.
-fn split(raw: &str, entities: &Value, range: Option<&Value>) -> Vec<Segment> {
+/// Entity indices count characters of the text as X sends it. With `handles`, the @handles X leaves unmarked are marked
+/// too: a bio's.
+fn split(raw: &str, entities: &Value, range: Option<&Value>, handles: bool) -> Vec<Segment> {
     let chars: Vec<char> = raw.chars().collect();
     let end = range.and_then(|r| r[1].as_u64()).map_or(chars.len(), |e| usize::try_from(e).unwrap_or(usize::MAX).min(chars.len()));
     let start = range.and_then(|r| r[0].as_u64()).map_or(0, |s| usize::try_from(s).unwrap_or(0).min(end));
@@ -398,6 +470,16 @@ fn split(raw: &str, entities: &Value, range: Option<&Value>) -> Vec<Segment> {
         let href = web(&u["expanded_url"])?;
         mark(u, Some(Segment::Link { shown: u["display_url"].as_str().unwrap_or(href).to_owned(), href: href.to_owned() }))
     }));
+    // X marks only a bio's links, and its own app finds the handles in the text, as twitter-text does: an @ after none
+    // of a letter, digit, `_` or `!#$%&*@`, then a handle that runs on into no other letter, an @ or `://`.
+    let word = |c: char| c.is_ascii_alphanumeric() || c == '_';
+    let starts = |i: usize| handles && chars[i] == '@' && (i == 0 || !(word(chars[i - 1]) || "!#$%&*@".contains(chars[i - 1])));
+    marks.extend((0..chars.len()).filter(|&i| starts(i)).filter_map(|i| {
+        let end = (i + 1..chars.len()).find(|&j| !word(chars[j])).unwrap_or(chars.len());
+        let (handle, rest): (String, String) = (chars[i + 1..end].iter().collect(), chars[end..].iter().take(3).collect());
+        let ends = !rest.starts_with(|c: char| c == '@' || c.is_alphabetic()) && !rest.starts_with("://");
+        (is_handle(&handle) && ends).then_some((i, end, Some(Segment::Mention(handle))))
+    }));
     marks.sort_by_key(|m| m.0);
     let mut out = Vec::new();
     let mut at = start;
@@ -406,13 +488,13 @@ fn split(raw: &str, entities: &Value, range: Option<&Value>) -> Vec<Segment> {
             continue; // overlapping, or outside the shown range: the trailing media link
         }
         if a > at {
-            out.push(Segment::Text(decode(&chars[at..a])));
+            out.push(Segment::Text(chars[at..a].iter().collect()));
         }
         out.extend(segment);
         at = b;
     }
     if at < end {
-        out.push(Segment::Text(decode(&chars[at..end])));
+        out.push(Segment::Text(chars[at..end].iter().collect()));
     }
     if let Some(Segment::Text(last)) = out.last_mut() {
         last.truncate(last.trim_end().len()); // the space before a cut media link
@@ -420,14 +502,14 @@ fn split(raw: &str, entities: &Value, range: Option<&Value>) -> Vec<Segment> {
     out
 }
 
-/// The three HTML entities X encodes in post text.
-fn decode(chars: &[char]) -> String { chars.iter().collect::<String>().replace("&lt;", "<").replace("&gt;", ">").replace("&amp;", "&") }
+/// The three HTML entities X encodes in `full_text`.
+fn decode(text: &str) -> String { text.replace("&lt;", "<").replace("&gt;", ">").replace("&amp;", "&") }
 
 fn media(legacy: &Value) -> Vec<Media> {
     items(&legacy["extended_entities"]["media"])
         .iter()
         .filter_map(|m| {
-            let size = |key: &str| m["original_info"][key].as_u64().and_then(|v| u32::try_from(v).ok()).unwrap_or(0);
+            let size = |key: &str| m["original_info"][key].as_u64().and_then(|v| u32::try_from(v).ok()).filter(|&v| v > 0);
             let mp4s: Vec<(u64, &str)> = items(&m["video_info"]["variants"])
                 .iter()
                 .filter(|v| v["content_type"] == "video/mp4")
@@ -441,7 +523,7 @@ fn media(legacy: &Value) -> Vec<Media> {
                 ("photo" | "video" | "animated_gif", _) => MediaKind::Photo,
                 _ => return None,
             };
-            Some(Media { kind, url: m["media_url_https"].as_str()?.to_owned(), width: size("width"), height: size("height") })
+            Some(Media { kind, url: m["media_url_https"].as_str()?.to_owned(), size: size("width").zip(size("height")) })
         })
         .collect()
 }

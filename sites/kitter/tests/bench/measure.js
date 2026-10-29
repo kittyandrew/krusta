@@ -4,7 +4,7 @@ const query = new URLSearchParams(location.search)
 if (query.has("bench")) {
   const app = query.get("krusta") === "off" ? "x.com" : "kitter"
   const POST = app === "x.com" ? 'article[data-testid="tweet"]' : "article.post"
-  const STEP = 80 // pixels a frame for 300 frames: 4,800 px/s for 5 s at 60 frames a second, as the budgets scroll
+  const STEP = 80 // pixels a frame for 300 frames: 4,800 px/s for 5 s at 60 frames a second, as the speed measurements scroll
   const FRAMES = 300
   const frame = () => new Promise(requestAnimationFrame)
   const scroll = async () => {
@@ -24,7 +24,7 @@ if (query.has("bench")) {
     if (!document.querySelector(POST)) return
     observer.disconnect()
     clearTimeout(stuck)
-    document.body.getBoundingClientRect() // the post laid out, as the budgets read it
+    document.body.getBoundingClientRect() // the post laid out, as the speed measurements read it
     const firstPost = performance.now() // from the navigation's start
     // Two seconds for the first screen's images and the app's own start-up work before the scroll.
     setTimeout(async () => {

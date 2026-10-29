@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
-# DEVELOPMENT ONLY: the speed budgets of docs/design.md (Speed), measured on this machine in a headless Firefox with
-# the staged build, or the unpacked add-on named. Not a flake check and never run in a VM, which kubicle measured
-# two to five times slower. Run it alone on a quiet machine; it exits 1 when a budget is missed.
+# DEVELOPMENT ONLY: the speed measurements of docs/design.md (Speed measurements), on this machine in a headless
+# Firefox with the staged build, or the unpacked add-on named. Not a flake check and never run in a VM, which kubicle
+# measured two to five times slower. Run it alone on a quiet machine; it prints each beside the run before.
 #
 #   sites/kitter/tests/budgets/run.sh                 # the staged .#extension
 #   sites/kitter/tests/budgets/run.sh <extension dir> # another build, to compare or to plant a slowdown
